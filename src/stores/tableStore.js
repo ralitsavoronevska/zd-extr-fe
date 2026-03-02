@@ -1,0 +1,60 @@
+// src/stores/tableStore.js
+import { defineStore } from 'pinia';
+import { computed, ref } from 'vue';
+
+export const useTableStore = defineStore('table', () => {
+    const filteredCustomers = ref([]);
+
+    function setFilteredCustomers(rows) {
+        filteredCustomers.value = rows || [];
+    }
+
+    // ────────────────────────────────────────────────
+    // Aggregations for charts
+    // ────────────────────────────────────────────────
+    const topicStats = computed(() => {
+        const stats = {};
+
+        filteredCustomers.value.forEach((c) => {
+            const topic = c.topic?.trim() || 'Unknown';
+            if (!stats[topic]) {
+                stats[topic] = {
+                    total: 0,
+                    negative: 0
+                };
+            }
+            stats[topic].total++;
+
+            // Assuming you have a sentiment field (or derive negative from it)
+            const isNegative = ['very negative', 'negative'].includes(c.sentiment?.toLowerCase());
+            if (isNegative) {
+                stats[topic].negative++;
+            }
+        });
+
+        // Sort by total descending
+        return Object.entries(stats)
+            .map(([topic, counts]) => ({
+                topic,
+                total: counts.total,
+                negative: counts.negative,
+                percentNegative: counts.total > 0 ? (counts.negative / counts.total) * 100 : 0
+            }))
+            .sort((a, b) => b.total - a.total);
+    });
+
+    const chartLabels = computed(() => topicStats.value.map((s) => s.topic));
+    const totalChatsData = computed(() => topicStats.value.map((s) => s.total));
+    const negativeChatsData = computed(() => topicStats.value.map((s) => s.negative));
+    const percentNegativeData = computed(() => topicStats.value.map((s) => s.percentNegative.toFixed(1)));
+
+    return {
+        filteredCustomers,
+        setFilteredCustomers,
+        topicStats,
+        chartLabels,
+        totalChatsData,
+        negativeChatsData,
+        percentNegativeData
+    };
+});

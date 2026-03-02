@@ -1,0 +1,19 @@
+<script setup>
+import AppFooter from '../layout/AppFooter.vue';
+import AppTopbar from '../layout/AppTopbar.vue';
+import Dashboard from '../views/Dashboard.vue';
+import ChartDoc from './uikit/ChartDoc.vue';
+</script>
+
+<template>
+    <AppTopbar />
+
+    <main class="pt-8 px-8">
+        <Dashboard />
+        <div class="pt-2 my-8">
+            <ChartDoc />
+        </div>
+    </main>
+
+    <AppFooter />
+</template>

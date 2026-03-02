@@ -1,0 +1,112 @@
+/* You can add global styles to this file, and also import other style files */
+@use 'primeicons/primeicons.css';
+@use '@/assets/layout/layout.scss';
+
+html {
+    &.app-dark {
+        .layout-topbar, .stats-widget-cards, .data-table, .dt-info-card {
+            box-shadow: .0875rem .0875rem .25rem var(--primary-color) !important;
+        }
+        #mode-toggle-button, #user-profile-button, .stats-icon-box {
+            img {
+                filter: invert(100%) sepia(100%) saturate(0%) hue-rotate(287deg) brightness(108%) contrast(101%) !important;
+            }
+        }
+        .dt-info-p {
+            color: var(--text-color) !important;
+        }
+        .text-primary {
+            color: var(--primary-color) !important;
+        }
+        .p-button-outlined {
+            border-color: var(--p-button-outlined-primary-border-color) !important;
+            color: var(--p-button-outlined-primary-color) !important;
+            &:hover, &:active {
+                border-color: var(--p-button-outlined-primary-hover-border-color) !important;
+                color: var(--p-button-outlined-primary-hover-color) !important;
+            }
+            &:hover {
+                background: var(--p-button-outlined-primary-hover-background) !important;
+            }
+            &:active {
+                background: var(--p-button-outlined-primary-active-background) !important;
+            }   
+        }
+        .p-button {
+            &.w-full, &.p-datatable-filter-apply-button {
+                background: var(--p-button-primary-background) !important;
+                border: 1px solid var(--p-button-primary-border-color) !important;
+            }
+        }
+        .p-button-warn {
+            background: var(--p-button-warn-background) !important;
+            border: 1px solid var(--p-button-warn-border-color) !important;
+            color: var(--p-button-warn-color) !important;
+        }
+        .p-button-danger {
+            background: var(--p-button-danger-background) !important;
+            border: 1px solid var(--p-button-danger-border-color) !important;
+            color: var(--p-button-danger-color) !important;
+        }
+    }
+    .layout-topbar, .stats-widget-cards, .data-table, .dt-info-card {
+        box-shadow: .0875rem .0875rem .25rem var(--p-primary-800) !important;
+    }
+    #mode-toggle-button, #user-profile-button {
+        img {
+            filter: invert(23%) sepia(6%) saturate(3120%) hue-rotate(176deg) brightness(86%) contrast(85%) !important;
+        }
+    }
+    .stats-icon-box, .dt-info-p {
+        background: var(--p-button-outlined-primary-active-background) !important;
+        img {
+            filter: invert(37%) sepia(20%) saturate(2572%) hue-rotate(121deg) brightness(87%) contrast(97%) !important;
+        }
+    }
+    .dt-info-p {
+        color: var(--p-tag-primary-color) !important;
+    }
+    .text-primary {
+        color: var(--p-primary-800);
+    }
+    .p-button-outlined {
+        border-color: var(--p-primary-800) !important;
+        color: var(--p-primary-800) !important; ;
+        &:hover, &:active {
+            border-color: var(--p-primary-950) !important;
+            color: var(--p-primary-950) !important;
+        }
+    }
+    .p-button {
+        &.w-full, &.p-datatable-filter-apply-button {
+            background: var(--p-primary-800) !important;
+            border: 1px solid var(--p-primary-800) !important;
+            &:hover, &:active {
+                background: var(--p-primary-700) !important;
+                border: 1px solid var(--p-primary-700) !important;
+            }
+        }
+    }
+    .p-button-warn {
+        background: var(--button-warn-dark-bg) !important;
+        border: 1px solid var(--button-warn-dark-bg) !important;
+        color: var(--p-button-warn-color) !important;
+        &:hover, &:active {
+            background: var(--button-warn-dark-hover-bg) !important;
+            border: 1px solid var(--button-warn-dark-hover-bg) !important;
+        }
+    }
+    .p-button-danger {
+        background: var(--button-danger-dark-bg) !important;
+        border: 1px solid var(--button-danger-dark-bg) !important;
+        color: var(--p-button-danger-color) !important;
+        &:hover, &:active {
+            background: var(--button-danger-dark-hover-bg) !important;
+            border: 1px solid var(--button-danger-dark-hover-bg) !important;
+        }
+    }
+}
+
+.summary-text {
+  white-space: pre-line;
+}
