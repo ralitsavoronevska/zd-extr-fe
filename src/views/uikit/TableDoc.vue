@@ -578,8 +578,16 @@ function clearFilter() {
         </DataTable>
 
         <!-- Chat Transcript Dialog -->
-        <Dialog v-model:visible="chatDialogVisible" :header="`Chat Transcript - ${formatDate(currentChatDate)}`" :style="{ width: '75vw' }" maximizable modal :contentStyle="{ height: '300px' }" aria-label="Chat transcript viewer">
-            <div class="space-y-3 overflow-y-auto" style="max-height: 400px">
+        <Dialog
+            v-model:visible="chatDialogVisible"
+            :header="`Chat Transcript - ${formatDate(currentChatDate)}`"
+            :style="{ width: '75vw' }"
+            maximizable
+            modal
+            :contentStyle="{ maxHeight: '400px', overflowY: 'auto' }"
+            aria-label="Chat transcript viewer"
+        >
+            <div class="space-y-3">
                 <div class="text-xs text-gray-500 dark:text-gray-400 px-4 pt-2 font-semibold tracking-wide">Ticket Date: {{ formatDate(currentChatDate) }}</div>
                 <div class="whitespace-pre-wrap break-words text-sm p-4 bg-surface-50 dark:bg-surface-900 rounded font-mono">
                     {{ cleanAndFormatString(currentChatTranscript) }}
@@ -591,8 +599,16 @@ function clearFilter() {
         </Dialog>
 
         <!-- Email Transcript Dialog -->
-        <Dialog v-model:visible="emailDialogVisible" :header="`Email Transcript - ${formatDate(currentEmailDate)}`" :style="{ width: '75vw' }" maximizable modal :contentStyle="{ height: '300px' }" aria-label="Email transcript viewer">
-            <div class="space-y-3 overflow-y-auto" style="max-height: 400px">
+        <Dialog
+            v-model:visible="emailDialogVisible"
+            :header="`Email Transcript - ${formatDate(currentEmailDate)}`"
+            :style="{ width: '75vw' }"
+            maximizable
+            modal
+            :contentStyle="{ maxHeight: '400px', overflowY: 'auto' }"
+            aria-label="Email transcript viewer"
+        >
+            <div class="space-y-3">
                 <div class="text-xs text-gray-500 dark:text-gray-400 px-4 pt-2 font-semibold tracking-wide">Ticket Date: {{ formatDate(currentEmailDate) }}</div>
                 <div class="whitespace-pre-wrap break-words text-sm p-4 bg-surface-50 dark:bg-surface-900 rounded font-mono">
                     {{ cleanAndFormatString(currentEmailTranscript) }}
