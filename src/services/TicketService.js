@@ -2,7 +2,7 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK_DATA === 'true' || true;
 
 import mockTicketSummaries from './mock-ticket-summaries.json';
 
-export const CustomerService = {
+export const TicketService = {
     async getTicketSummaries(params = {}) {
         const {
             page = 1,
@@ -148,20 +148,19 @@ async function mockPaginatedResponse(allData, params) {
         filteredData = filteredData.filter((item) => _chatTagsString.some((selected) => item.chat_tags?.includes(selected)));
     }
 
-    // Timestamp range – hoist Date creation outside loop for performance (optimized for 10000+ records)
+    // Timestamp range
     if (startDate) {
-        const startDateObj = new Date(startDate);
-        filteredData = filteredData.filter((item) => new Date(item.timestamp) >= startDateObj);
+        filteredData = filteredData.filter((item) => new Date(item.timestamp) >= new Date(startDate));
     }
     if (endDate) {
-        const endDateObj = new Date(endDate);
-        filteredData = filteredData.filter((item) => new Date(item.timestamp) < endDateObj);
+        filteredData = filteredData.filter((item) => new Date(item.timestamp) < new Date(endDate));
     }
 
     const total = filteredData.length;
     const start = (params.page - 1) * params.limit;
     const paginated = filteredData.slice(start, start + params.limit);
 
-    // Mock delay removed – instant response optimized for large datasets
+    await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
+
     return { data: paginated, total, page: params.page, limit: params.limit };
 }

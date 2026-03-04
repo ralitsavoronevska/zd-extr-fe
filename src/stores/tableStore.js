@@ -3,12 +3,12 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
 export const useTableStore = defineStore('table', () => {
-    const filteredCustomers = ref([]);
+    const filteredTickets = ref([]);
     let cachedStats = null;
     let cachedStatsLength = 0;
 
-    function setFilteredCustomers(rows) {
-        filteredCustomers.value = rows || [];
+    function setFilteredTickets(rows) {
+        filteredTickets.value = rows || [];
         // Invalidate cache when customers change
         cachedStats = null;
         cachedStatsLength = 0;
@@ -18,8 +18,8 @@ export const useTableStore = defineStore('table', () => {
     // Aggregations for charts (memoized)
     // ────────────────────────────────────────────────
     const topicStats = computed(() => {
-        const currentLength = filteredCustomers.value.length;
-        
+        const currentLength = filteredTickets.value.length;
+
         // Return cached result if data hasn't changed
         if (cachedStats !== null && cachedStatsLength === currentLength) {
             return cachedStats;
@@ -27,7 +27,7 @@ export const useTableStore = defineStore('table', () => {
 
         const stats = {};
 
-        filteredCustomers.value.forEach((c) => {
+        filteredTickets.value.forEach((c) => {
             const topic = c.topic?.trim() || 'Unknown';
             if (!stats[topic]) {
                 stats[topic] = {
@@ -53,7 +53,7 @@ export const useTableStore = defineStore('table', () => {
                 percentNegative: counts.total > 0 ? (counts.negative / counts.total) * 100 : 0
             }))
             .sort((a, b) => b.total - a.total);
-        
+
         cachedStatsLength = currentLength;
         return cachedStats;
     });
@@ -64,8 +64,8 @@ export const useTableStore = defineStore('table', () => {
     const percentNegativeData = computed(() => topicStats.value.map((s) => s.percentNegative.toFixed(1)));
 
     return {
-        filteredCustomers,
-        setFilteredCustomers,
+        filteredTickets,
+        setFilteredTickets,
         topicStats,
         chartLabels,
         totalChatsData,

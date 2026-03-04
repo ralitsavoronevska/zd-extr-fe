@@ -241,7 +241,7 @@ watch(
 watch(
     filteredTickets,
     (newFiltered) => {
-        tableStore.setFilteredCustomers(newFiltered);
+        tableStore.setFilteredTickets(newFiltered);
     },
     { immediate: true }
 );

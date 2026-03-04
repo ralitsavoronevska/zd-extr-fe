@@ -81,9 +81,10 @@ export default defineConfig({
     // server: {
     //     proxy: {
     //         '/api': {
-    //             target: 'https://56.228.5.130',
+    //             target: 'http://56.228.5.130',
     //             changeOrigin: true,
-    //             secure: false
+    //             secure: false,
+    //             rewrite: (path) => path.replace(/^\/api/, '')
     //         }
     //     }
     // }

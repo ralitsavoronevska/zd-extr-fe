@@ -1,6 +1,6 @@
 import { cleanAndFormatString } from '@/utils/stringUtils';
 
-export function useCustomerNormalizer() {
+export function useTicketNormalizer() {
     // Helper to normalize string fields - single pass
     const normalizeField = (value, defaultValue = 'none') => {
         if (value == null) return defaultValue;
@@ -8,7 +8,7 @@ export function useCustomerNormalizer() {
         return normalized === 'null' || normalized === '' ? defaultValue : normalized;
     };
 
-    const normalizeCustomer = (customer) => {
+    const normalizeTicket = (customer) => {
         const normalized = { ...customer };
 
         normalized.timestamp = new Date(customer.timestamp);
@@ -33,5 +33,5 @@ export function useCustomerNormalizer() {
         return normalized;
     };
 
-    return { normalizeCustomer };
+    return { normalizeTicket };
 }

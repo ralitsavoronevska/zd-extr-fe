@@ -9,45 +9,45 @@ const tableStore = useTableStore();
 // Follows the same memoization pattern as tableStore.cachedStats
 // Only recalculates when filtered dataset size changes, avoiding O(n) operations on every render
 let cachedDateRange = null;
-let cachedFilteredCustomersLength = 0;
+let cachedFilteredTicketsLength = 0;
 
 // ────────────────────────────────────────────────
-// 1. Get filtered customers from store (reactive)
-const filteredCustomers = computed(() => tableStore.filteredCustomers || []);
+// 1. Get filtered tickets from store (reactive)
+const filteredTickets = computed(() => tableStore.filteredTickets || []);
 
 // ────────────────────────────────────────────────
 // 2. Compute date range from filtered data (min/max timestamp)
 // OPTIMIZED: Memoized – only recalculates when dataset size changes (single-pass O(n))
 const dateRange = computed(() => {
-    const currentLength = filteredCustomers.value.length;
-    
+    const currentLength = filteredTickets.value.length;
+
     // Return cached value if dataset size hasn't changed
-    if (cachedDateRange !== null && cachedFilteredCustomersLength === currentLength) {
+    if (cachedDateRange !== null && cachedFilteredTicketsLength === currentLength) {
         return cachedDateRange;
     }
 
     if (!currentLength) {
         cachedDateRange = { start: null, end: null };
-        cachedFilteredCustomersLength = currentLength;
+        cachedFilteredTicketsLength = currentLength;
         return cachedDateRange;
     }
 
-    let min = new Date(filteredCustomers.value[0].timestamp);
-    let max = new Date(filteredCustomers.value[0].timestamp);
-    
+    let min = new Date(filteredTickets.value[0].timestamp);
+    let max = new Date(filteredTickets.value[0].timestamp);
+
     // Single-pass iteration (O(n) only when dataset size changes)
     for (let i = 1; i < currentLength; i++) {
-        const ts = new Date(filteredCustomers.value[i].timestamp);
+        const ts = new Date(filteredTickets.value[i].timestamp);
         if (ts < min) min = ts;
         if (ts > max) max = ts;
     }
-    
+
     min.setHours(0, 0, 0, 0);
     max.setHours(23, 59, 59, 999);
-    
+
     cachedDateRange = { start: min, end: max };
-    cachedFilteredCustomersLength = currentLength;
-    
+    cachedFilteredTicketsLength = currentLength;
+
     return cachedDateRange;
 });
 
@@ -69,7 +69,7 @@ const dates = computed(() => {
 const SEGMENT_ORDER = ['none', 'normal', 'bronze', 'silver', 'gold', 'platinum', 'diamond'];
 
 const groupedData = computed(() => {
-    if (!filteredCustomers.value.length) return [];
+    if (!filteredTickets.value.length) return [];
 
     const vipStats = {};
 
@@ -86,7 +86,7 @@ const groupedData = computed(() => {
     });
 
     // Aggregate counts
-    filteredCustomers.value.forEach((customer) => {
+    filteredTickets.value.forEach((customer) => {
         const vip = (customer.vip_level || 'none').toLowerCase();
         const ts = new Date(customer.timestamp);
         ts.setHours(0, 0, 0, 0);
@@ -176,7 +176,7 @@ function getSegmentRowClass(segment) {
         <!-- Info banner -->
         <div class="dt-info-card card mb-8 p-4">
             <p class="inline-block dt-info-p rounded-xl py-2 px-3">
-                Aggregated from <strong>{{ tableStore.filteredCustomers?.length || 0 }}</strong> filtered tickets (date range: {{ dateRange.start ? formatDateHeader(dateRange.start) : '—' }} to
+                Aggregated from <strong>{{ tableStore.filteredTickets?.length || 0 }}</strong> filtered tickets (date range: {{ dateRange.start ? formatDateHeader(dateRange.start) : '—' }} to
                 {{ dateRange.end ? formatDateHeader(dateRange.end) : '—' }})
             </p>
         </div>

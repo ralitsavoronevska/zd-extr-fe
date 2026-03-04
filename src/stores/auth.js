@@ -67,7 +67,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Placeholder – ready for Django JWT
     async function loginDjango(email, password) {
-        const api = (await import('@/services/api')).default;
+        const api = (await import('@/services/authApi')).default;
         const res = await api.post('/api/token/', { email, password });
 
         // Django will return access token + set HttpOnly refresh cookie
@@ -88,7 +88,7 @@ export const useAuthStore = defineStore('auth', () => {
             await signOut(auth);
         } else {
             // Django: clear HttpOnly refresh cookie
-            const api = (await import('@/services/api')).default;
+            const api = (await import('@/services/authApi')).default;
             await api.post('/api/logout/', {}, { withCredentials: true });
         }
 
