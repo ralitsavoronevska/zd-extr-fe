@@ -1,7 +1,7 @@
 <script setup>
 import AppFooter from '../layout/AppFooter.vue';
 import AppTopbar from '../layout/AppTopbar.vue';
-import Dashboard from '../views/Dashboard.vue';
+import Dashboard from './Dashboard.vue'; // ← fixed
 import ChartDoc from './uikit/ChartDoc.vue';
 </script>
 

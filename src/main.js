@@ -45,6 +45,10 @@ app.use(ConfirmationService);
 const authStore = useAuthStore();
 authStore.initializeAuth();
 
+import { useArrayMultiSelects } from '@/composables/useArrayMultiSelects';
+const { _lazyInit } = useArrayMultiSelects();
+_lazyInit(); // fire-and-forget — loads data in the background
+
 // ── Preload PrimeIcons font early ─────────────────────────────────
 const preloadLink = document.createElement('link');
 preloadLink.rel = 'preload';

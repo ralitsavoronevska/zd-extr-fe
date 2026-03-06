@@ -1,4 +1,5 @@
-const USE_MOCK = import.meta.env.VITE_USE_MOCK_DATA === 'true' || true;
+import api from '@/services/authApi';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 
 import mockTicketSummaries from './mock-ticket-summaries.json';
 

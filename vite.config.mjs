@@ -6,7 +6,7 @@ import Components from 'unplugin-vue-components/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-    base: '/zd-extr-fe/',
+    base: process.env.NODE_ENV === 'production' ? 'localhost' : '/',
 
     resolve: {
         alias: {
@@ -27,13 +27,18 @@ export default defineConfig({
         tailwindcss(),
         Components({
             resolvers: [PrimeVueResolver()]
+<<<<<<< HEAD
+=======
+        }),
+        visualizer({
+            open: true,
+            filename: './dist/stats.html',
+            gzipSize: true,
+            template: 'treemap',
+            emitFile: false
+>>>>>>> 1b17196 (prepared for production)
         })
     ],
-
-    // optimizeDeps: {
-    //     noDiscovery: true,
-    //     include: ['primevue/config']
-    // },
 
     build: {
         rollupOptions: {
@@ -41,43 +46,36 @@ export default defineConfig({
                 manualChunks(id) {
                     if (!id.includes('node_modules')) return;
 
-                    // 1. Vue ecosystem (almost never changes)
                     if (id.includes('vue') || id.includes('@vue') || id.includes('pinia') || id.includes('vue-router')) {
                         return 'framework';
                     }
 
-                    // 2. PrimeVue ecosystem
                     if (id.includes('primevue') || id.includes('primeicons')) {
                         return 'primevue';
                     }
 
-                    // 3. Firebase (large + isolated)
                     if (id.includes('firebase')) {
                         return 'firebase';
                     }
 
-                    // 4. Charts (heavy)
                     if (id.includes('chart.js') || id.includes('recharts')) {
                         return 'charts';
                     }
 
-                    // 5. Everything else
                     return 'vendor';
-                    // Your app code stays in default chunks (index-*.js, etc.)
                 }
             }
         },
-        minify: 'esbuild' // Better minification
-    }
+        minify: 'esbuild'
+    },
 
-    // server: {
-    //     proxy: {
-    //         '/api': {
-    //             target: 'http://56.228.5.130',
-    //             changeOrigin: true,
-    //             secure: false,
-    //             rewrite: (path) => path.replace(/^\/api/, '')
-    //         }
-    //     }
-    // }
+    server: {
+        proxy: {
+            '/api': {
+                target: 'http://56.228.5.130',
+                changeOrigin: true,
+                secure: false,
+            }
+        }
+    }
 });

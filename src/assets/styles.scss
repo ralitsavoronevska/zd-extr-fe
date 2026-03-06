@@ -30,7 +30,7 @@ html {
             }
             &:active {
                 background: var(--p-button-outlined-primary-active-background) !important;
-            }   
+            }
         }
         .p-button {
             &.w-full, &.p-datatable-filter-apply-button {
@@ -109,4 +109,7 @@ html {
 
 .summary-text {
   white-space: pre-line;
+}
+.layout-topbar, .stats-widget-cards, .data-table, .dt-info-card, .vip-table {
+    box-shadow: .0875rem .0875rem .25rem var(--p-primary-800) !important;
 }

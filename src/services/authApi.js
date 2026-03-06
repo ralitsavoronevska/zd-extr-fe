@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://13.61.14.255',
-    withCredentials: true, // Required for HttpOnly cookies
+    baseURL: import.meta.env.VITE_API_BASE_URL || '',
+    withCredentials: true,
     timeout: 10000
 });
 
