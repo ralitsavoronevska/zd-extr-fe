@@ -9,28 +9,15 @@ const CSAT_MID_THRESHOLD = 50;  // % — yellow; below this is red
 
 const tableStore = useTableStore();
 
-let cachedDateRange = null;
-let cachedFilteredTicketsLength = 0;
-
 const filteredTickets = computed(() => tableStore.filteredTickets || []);
 
 const dateRange = computed(() => {
-    const currentLength = filteredTickets.value.length;
-
-    if (cachedDateRange !== null && cachedFilteredTicketsLength === currentLength) {
-        return cachedDateRange;
-    }
-
-    if (!currentLength) {
-        cachedDateRange = { start: null, end: null };
-        cachedFilteredTicketsLength = currentLength;
-        return cachedDateRange;
-    }
+    if (!filteredTickets.value.length) return { start: null, end: null };
 
     let min = new Date(filteredTickets.value[0].timestamp);
     let max = new Date(filteredTickets.value[0].timestamp);
 
-    for (let i = 1; i < currentLength; i++) {
+    for (let i = 1; i < filteredTickets.value.length; i++) {
         const ts = new Date(filteredTickets.value[i].timestamp);
         if (ts < min) min = ts;
         if (ts > max) max = ts;
@@ -39,10 +26,7 @@ const dateRange = computed(() => {
     min.setHours(0, 0, 0, 0);
     max.setHours(23, 59, 59, 999);
 
-    cachedDateRange = { start: min, end: max };
-    cachedFilteredTicketsLength = currentLength;
-
-    return cachedDateRange;
+    return { start: min, end: max };
 });
 
 const dates = computed(() => {

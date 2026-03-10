@@ -135,7 +135,7 @@ Functions: camelCase
   - `--transition-duration`, `--content-border-radius`
 - **Tailwind** for layout and spacing (`grid`, `flex`, `gap-*`, `p-*`, breakpoints `lg:`, `xl:`)
 - **SCSS `<style scoped>`** for component-specific overrides
-- **`:deep(.p-*)`** to override PrimeVue internals from scoped styles
+- **`:deep(.p-*)`** to override PrimeVue internals — **only inside `<style scoped>`**. In a plain `<style>` block, `:deep()` is invalid and breaks selectors — use plain class selectors there instead
 - **Responsive**: Tailwind breakpoints + `@media (max-width: 991px)` in SCSS files
 
 ---
@@ -222,3 +222,13 @@ Functions: camelCase
 | `VITE_FIREBASE_APP_ID` | Firebase app ID |
 
 API proxy (dev only): `/api/` → `http://56.228.5.130` (configured in `vite.config.mjs`)
+
+---
+
+## Important Gotchas
+
+- **Do NOT add `/:pathMatch(.*)*` catch-all route** — it breaks GitHub Pages cold navigation. Vue Router cannot intercept direct URL loads on GH Pages; the 404.html trick is needed instead.
+- **`isLoading` from `useArrayMultiSelects()`** — use this for DataTable `:loading` prop; do not create local `loading = ref(false)` that is never set.
+- **Named constants over magic numbers** — e.g. `PAGE_SIZE_DEFAULT = 5`, `FILTER_DEBOUNCE_MS = 500`, `CSAT_HIGH_THRESHOLD = 80`, `CSV_ROW_WARN_THRESHOLD = 10_000`.
+- **Data is already normalized** by `processRecords` — no need for defensive `|| 'none'` / `|| 'No Data'` checks downstream in composables or CSV export.
+- **Git remotes**: `origin` = old/clean repo (`rvoronevska-sbt/zd-extr-fe`), `new-origin` = active development repo. Always push to `new-origin`.

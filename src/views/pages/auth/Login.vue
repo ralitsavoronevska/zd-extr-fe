@@ -61,7 +61,6 @@ async function handleLogin() {
         // Remove shake after animation
         setTimeout(() => {
             shake.value = false;
-            router.replace({ name: 'error' });
         }, 600);
     } finally {
         loading.value = false;
