@@ -16,6 +16,7 @@ export function useFacetedFilterOptions(filters, tickets) {
         ticketid: filters.value.ticketid?.value,
         topic: filters.value.topic?.value,
         csat_score: filters.value.csat_score?.value,
+        csat_reason: filters.value.csat_reason?.value,
         sentiment: filters.value.sentiment?.value,
         chat_transcript: filters.value.chat_transcript?.value,
         email_transcript: filters.value.email_transcript?.value,
@@ -33,9 +34,10 @@ export function useFacetedFilterOptions(filters, tickets) {
         _chatTagsString: filters.value._chatTagsString?.value ?? []
     }));
 
-    // Apply all filters except the excluded field, then extract unique sorted values
-    function facetedOptions(excludeField, extractFn) {
-        const params = { ...baseFilterParams.value, ...activeMultiselects.value, [excludeField]: [] };
+    // Apply all filters except the excluded field, then extract unique sorted values.
+    // clearValue: [] for multiselects, null for single-select fields (sentiment, csat_score)
+    function facetedOptions(excludeField, extractFn, clearValue = []) {
+        const params = { ...baseFilterParams.value, ...activeMultiselects.value, [excludeField]: clearValue };
         const subset = applyTicketFilters(tickets.value, params);
         const values = subset.flatMap(extractFn).filter(Boolean);
         return [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -46,12 +48,16 @@ export function useFacetedFilterOptions(filters, tickets) {
     const availableCustomerEmails = computed(() => facetedOptions('customer_email', (t) => [t.customer_email]));
     const availableAgentEmails = computed(() => facetedOptions('agent_email', (t) => [t.agent_email]));
     const availableChatTags = computed(() => facetedOptions('_chatTagsString', (t) => t.chat_tags ?? []));
+    const availableSentiments = computed(() => facetedOptions('sentiment', (t) => [t.sentiment], null));
+    const availableCsatScores = computed(() => facetedOptions('csat_score', (t) => [t.csat_score], null));
 
     return {
         availableBrands,
         availableVipLevels,
         availableCustomerEmails,
         availableAgentEmails,
-        availableChatTags
+        availableChatTags,
+        availableSentiments,
+        availableCsatScores
     };
 }

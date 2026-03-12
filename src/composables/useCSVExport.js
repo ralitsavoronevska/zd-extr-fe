@@ -37,7 +37,7 @@ export function useCSVExport(dataTable, filteredRows, processedCustomers, format
             if (!warned) return;
         }
 
-        const headers = ['Date', 'Topic', 'Ticket ID', 'Brand', 'VIP Level', 'Customer Email', 'Agent Email', 'CSAT Score', 'Chat Tags', 'Chat Transcript', 'Email Transcript', 'Sentiment', 'Summary'];
+        const headers = ['Date', 'Topic', 'Ticket ID', 'Brand', 'VIP Level', 'Customer Email', 'Agent Email', 'CSAT Score', 'CSAT Reason', 'Chat Tags', 'Chat Transcript', 'Email Transcript', 'Sentiment', 'Summary'];
 
         const rows = dataToExport.map((ticket) => [
             formatDate(ticket.timestamp),
@@ -48,6 +48,7 @@ export function useCSVExport(dataTable, filteredRows, processedCustomers, format
             ticket.customer_email,
             ticket.agent_email,
             ticket.csat_score,
+            ticket.csat_reason,
             ticket._chatTagsString,
             ticket.chat_transcript,
             ticket.email_transcript,

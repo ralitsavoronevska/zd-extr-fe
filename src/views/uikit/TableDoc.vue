@@ -8,7 +8,6 @@ import { useCSVExport } from '@/composables/useCSVExport';
 import { cleanAndFormatString } from '@/utils/stringUtils';
 import { applyTicketFilters } from '@/utils/ticketFilters';
 import { formatDate } from '@/utils/dateUtils';
-import { CSAT_OPTIONS as csatOptions, SENTIMENT_OPTIONS as sentimentOptions } from '@/config/enums';
 
 import { useTableStore } from '@/stores/tableStore';
 
@@ -58,6 +57,7 @@ const createInitialFilters = () => ({
     customer_email: { value: [], matchMode: 'containsAny' },
     agent_email: { value: [], matchMode: 'containsAny' },
     csat_score: { value: null, matchMode: FilterMatchMode.EQUALS },
+    csat_reason: { value: null, matchMode: FilterMatchMode.CONTAINS },
     _chatTagsString: { value: [], matchMode: 'containsAny' },
     chat_transcript: { value: null, matchMode: FilterMatchMode.CONTAINS },
     email_transcript: { value: null, matchMode: FilterMatchMode.CONTAINS },
@@ -115,6 +115,7 @@ const filteredTickets = computed(() =>
         agent_email: filters.value.agent_email?.value ?? [],
         _chatTagsString: filters.value._chatTagsString?.value ?? [],
         csat_score: filters.value.csat_score?.value,
+        csat_reason: filters.value.csat_reason?.value,
         sentiment: filters.value.sentiment?.value,
         chat_transcript: filters.value.chat_transcript?.value,
         email_transcript: filters.value.email_transcript?.value,
@@ -127,7 +128,7 @@ const filteredTickets = computed(() =>
 // ────────────────────────────────────────────────
 // Faceted multiselect options
 // ────────────────────────────────────────────────
-const { availableBrands, availableVipLevels, availableCustomerEmails, availableAgentEmails, availableChatTags } = useFacetedFilterOptions(filters, fullProcessedTickets);
+const { availableBrands, availableVipLevels, availableCustomerEmails, availableAgentEmails, availableChatTags, availableSentiments, availableCsatScores } = useFacetedFilterOptions(filters, fullProcessedTickets);
 
 const paginatedTickets = computed(() => {
     const start = (lazyParams.value.page - 1) * lazyParams.value.limit;
@@ -233,6 +234,7 @@ const toDate = computed({
 function clearFilter() {
     filters.value = createInitialFilters();
     lazyParams.value.page = 1;
+    lazyParams.value.limit = PAGE_SIZE_DEFAULT;
 }
 </script>
 
@@ -264,7 +266,7 @@ function clearFilter() {
             :paginatorPosition="'both'"
             v-model:filters="filters"
             filterDisplay="menu"
-            :globalFilterFields="['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', '_chatTagsString', 'chat_transcript', 'email_transcript', 'sentiment', 'summary']"
+            :globalFilterFields="['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'csat_reason', '_chatTagsString', 'chat_transcript', 'email_transcript', 'sentiment', 'summary']"
             :virtualScrollerOptions="{ itemSize: VIRTUAL_SCROLL_ITEM_SIZE }"
             responsiveLayout="scroll"
             showGridlines
@@ -373,11 +375,20 @@ function clearFilter() {
                     <Tag :value="data.csat_score" severity="contrast" />
                 </template>
                 <template #filter="{ filterModel }">
-                    <Select v-model="filterModel.value" :options="csatOptions" placeholder="Filter by CSAT" showClear>
+                    <Select v-model="filterModel.value" :options="availableCsatScores" placeholder="Filter by CSAT Score" showClear>
                         <template #option="slotProps">
                             <Tag :value="slotProps.option" />
                         </template>
                     </Select>
+                </template>
+            </Column>
+
+            <Column header="CSAT Reason" field="csat_reason" filterField="csat_reason" style="min-width: 12rem">
+                <template #body="{ data }">
+                    {{ data.csat_reason }}
+                </template>
+                <template #filter="{ filterModel }">
+                    <InputText v-model="filterModel.value" type="text" placeholder="Filter by CSAT Reason" />
                 </template>
             </Column>
 
@@ -423,7 +434,7 @@ function clearFilter() {
                     <Tag :value="data.sentiment" severity="help" />
                 </template>
                 <template #filter="{ filterModel }">
-                    <Select v-model="filterModel.value" :options="sentimentOptions" placeholder="Filter by Sentiment" showClear>
+                    <Select v-model="filterModel.value" :options="availableSentiments" placeholder="Filter by Sentiment" showClear>
                         <template #option="slotProps">
                             <Tag :value="slotProps.option" />
                         </template>
@@ -453,7 +464,7 @@ function clearFilter() {
         >
             <div class="space-y-3">
                 <div class="text-xs text-gray-500 dark:text-gray-400 px-4 pt-2 font-semibold tracking-wide">Ticket Date: {{ formatDate(dialog.date) }}</div>
-                <div class="whitespace-pre-wrap break-words text-sm p-4 bg-surface-50 dark:bg-surface-900 rounded font-mono">
+                <div class="whitespace-pre-wrap break-words text-sm p-4 bg-surface-50 dark:bg-surface-950 rounded font-mono">
                     {{ cleanAndFormatString(dialog.transcript) }}
                 </div>
             </div>

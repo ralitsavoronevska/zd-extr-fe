@@ -18,6 +18,7 @@ export function applyTicketFilters(data, params = {}) {
         agent_email = [],
         _chatTagsString = [],
         csat_score = null,
+        csat_reason = null,
         sentiment = null,
         chat_transcript = null,
         email_transcript = null,
@@ -40,6 +41,7 @@ export function applyTicketFilters(data, params = {}) {
                 item.customer_email || '',
                 item.agent_email || '',
                 item.csat_score || '',
+                item.csat_reason || '',
                 item.sentiment || '',
                 item.summary || '',
                 item.chat_transcript || '',
@@ -76,6 +78,11 @@ export function applyTicketFilters(data, params = {}) {
     if (topic) {
         const topicLower = topic.toLowerCase();
         result = result.filter((item) => item.topic?.toLowerCase().includes(topicLower));
+    }
+
+    if (csat_reason) {
+        const csatReasonLower = csat_reason.toLowerCase();
+        result = result.filter((item) => item.csat_reason?.toLowerCase().includes(csatReasonLower));
     }
 
     if (chat_transcript) {
