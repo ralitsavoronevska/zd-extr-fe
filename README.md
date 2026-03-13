@@ -18,6 +18,6 @@ the recommended way to start a Vite-powered Vue projects.
   </div>
 </div>
 
-## Logo have been taken from [UntitledUI](https://www.untitledui.com/logos)
+## Logos have been taken from [UntitledUI](https://www.untitledui.com/logos)
 
 ## Favicons have been created with the help of a [RealFaviconGenerator](https://realfavicongenerator.net/)
