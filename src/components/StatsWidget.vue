@@ -1,9 +1,14 @@
 <script setup>
-import { useTicketData } from '@/composables/useTicketData';
+import { useTableStore } from '@/stores/tableStore';
 import { computed } from 'vue';
 import { VIP_TIERS } from '@/config/enums';
 
-const { fullProcessedTickets } = useTicketData();
+const tableStore = useTableStore();
+
+// Precompile regex patterns — avoids recompilation per ticket
+const COMPLIANCE_OK_RE = /compliance[:\s]+ok/i;
+const COMPLIANCE_ISSUE_RE = /compliance[:\s]+issue/i;
+const COMPLIANCE_WORD_RE = /compliance/i;
 
 const stats = computed(() => {
     let csatGood = 0,
@@ -20,7 +25,7 @@ const stats = computed(() => {
     const brandSet = new Set();
     const vipLevels = new Set(VIP_TIERS);
 
-    for (const t of fullProcessedTickets.value) {
+    for (const t of tableStore.filteredTickets) {
         const csat = t.csat_score?.toLowerCase();
         const sentiment = t.sentiment?.toLowerCase();
         const vip = t.vip_level?.toLowerCase();
@@ -41,12 +46,12 @@ const stats = computed(() => {
             else vipOther++;
         }
 
-        if (/compliance[:\s]+ok/i.test(summary)) complianceOk++;
-        else if (/compliance[:\s]+issue/i.test(summary)) complianceIssue++;
-        if (!/compliance/i.test(summary)) complianceMissing++;
+        if (COMPLIANCE_OK_RE.test(summary)) complianceOk++;
+        else if (COMPLIANCE_ISSUE_RE.test(summary)) complianceIssue++;
+        if (!COMPLIANCE_WORD_RE.test(summary)) complianceMissing++;
     }
 
-    const totalTickets = fullProcessedTickets.value.length;
+    const totalTickets = tableStore.filteredTickets.length;
     const ratedTickets = csatGood + csatBad;
     const pctCsat = ratedTickets > 0 ? ((csatGood / ratedTickets) * 100).toFixed(1) : '0';
     const pctSentiment = totalTickets > 0 ? (((negSentiment + veryNegSentiment) / totalTickets) * 100).toFixed(1) : '0';

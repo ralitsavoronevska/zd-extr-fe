@@ -8,6 +8,7 @@ import { useCSVExport } from '@/composables/useCSVExport';
 import { cleanAndFormatString } from '@/utils/stringUtils';
 import { applyTicketFilters } from '@/utils/ticketFilters';
 import { formatDate } from '@/utils/dateUtils';
+import { debounce } from '@/utils/debounce';
 
 import { useTableStore } from '@/stores/tableStore';
 
@@ -107,24 +108,6 @@ const openDialog = (type, transcript, timestamp) => {
     dialog.transcript = transcript;
     dialog.date = timestamp;
     dialog.visible = true;
-};
-
-// Inline debounce – no dependencies
-/**
- * Debounce utility to throttle rapid function calls.
- * @param {Function} fn - Function to debounce
- * @param {number} delay - Debounce delay in milliseconds
- * @returns {Function} Debounced function
- */
-const debounce = (fn, delay) => {
-    let timer = null;
-    return (...args) => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-            fn(...args);
-            timer = null;
-        }, delay);
-    };
 };
 
 // ────────────────────────────────────────────────

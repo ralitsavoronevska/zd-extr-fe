@@ -6,6 +6,9 @@ import { applyTicketFilters } from '@/utils/ticketFilters';
  * Each available* computed applies all active filters EXCEPT its own field,
  * so the dropdown only shows values that exist in the currently narrowed data.
  *
+ * Performance: base-filtered dataset is computed once, then each facet
+ * only applies the other multiselects (not the full filter pipeline again).
+ *
  * @param {Ref<Object>} filters  - The filters ref from TableDoc
  * @param {Ref<Array>}  tickets  - fullProcessedTickets from useTicketData
  */
@@ -34,11 +37,13 @@ export function useFacetedFilterOptions(filters, tickets) {
         _chatTagsString: filters.value._chatTagsString?.value ?? []
     }));
 
-    // Apply all filters except the excluded field, then extract unique sorted values.
-    // clearValue: [] for multiselects, null for single-select fields (sentiment, csat_score)
+    // Step 1: Apply base (non-multiselect) filters once — shared by all facets
+    const baseFiltered = computed(() => applyTicketFilters(tickets.value, baseFilterParams.value));
+
+    // Step 2: For each facet, apply only the OTHER multiselects, then extract unique values
     function facetedOptions(excludeField, extractFn, clearValue = []) {
-        const params = { ...baseFilterParams.value, ...activeMultiselects.value, [excludeField]: clearValue };
-        const subset = applyTicketFilters(tickets.value, params);
+        const multiselectParams = { ...activeMultiselects.value, [excludeField]: clearValue };
+        const subset = applyTicketFilters(baseFiltered.value, multiselectParams);
         const values = subset.flatMap(extractFn).filter(Boolean);
         return [...new Set(values)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     }

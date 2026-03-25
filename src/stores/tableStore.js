@@ -41,18 +41,9 @@ export const useTableStore = defineStore('table', () => {
             .sort((a, b) => b.total - a.total);
     });
 
-    const chartLabels = computed(() => topicStats.value.map((s) => s.topic));
-    const totalChatsData = computed(() => topicStats.value.map((s) => s.total));
-    const negativeChatsData = computed(() => topicStats.value.map((s) => s.negative));
-    const percentNegativeData = computed(() => topicStats.value.map((s) => s.percentNegative.toFixed(1)));
-
     return {
         filteredTickets,
         setFilteredTickets,
-        topicStats,
-        chartLabels,
-        totalChatsData,
-        negativeChatsData,
-        percentNegativeData
+        topicStats
     };
 });

@@ -1,29 +1,51 @@
 /**
  * Formats dates, splits lines after dates and separators,
  * and removes any markdown image syntax like ![](...) or ![]()
+ *
+ * Regex patterns precompiled at module level to avoid
+ * recompilation per call (30k+ tickets during processRecords).
  */
+
+// Markdown image patterns
+const MD_IMG_FULL = /!\[.*?\]\(.*?\)/g;
+const MD_IMG_EMPTY = /!\[\]\(.*?\)/g;
+const MD_IMG_BLOB = /!\[.*?\]\(\s*blob:.*?\)/g;
+const MD_IMG_BARE = /!\[\]/g;
+
+// Broken ISO date normalization
+const ISO_PUNCT_SPACES = /\s*([+:])\s*/g;
+const ISO_T_SPACE = /T\s+/g;
+const ISO_TIME_SPACE = /\s+(\d{2}:\d{2})/g;
+const ISO_TZ_SPACE = /(\d{2})\s*([+-]\d{2}:\d{2})/g;
+
+// Date extraction
+const DATE_RE = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2})/g;
+
+// Separator and cleanup
+const SEPARATOR_RE = /\s*(?:\|+|[-–—]+|and|,\s*)\s*/gi;
+const MULTI_NEWLINES_RE = /\n{4,}/g;
+
 export function cleanAndFormatString(input) {
     if (!input || typeof input !== 'string') return input;
 
     // Remove markdown images
     let cleaned = input
-        .replace(/!\[.*?\]\(.*?\)/g, '')
-        .replace(/!\[\]\(.*?\)/g, '')
-        .replace(/!\[.*?\]\(\s*blob:.*?\)/g, '')
-        .replace(/!\[\]/g, '');
+        .replace(MD_IMG_FULL, '')
+        .replace(MD_IMG_EMPTY, '')
+        .replace(MD_IMG_BLOB, '')
+        .replace(MD_IMG_BARE, '');
 
     // Normalize broken ISO dates (remove unwanted spaces)
     cleaned = cleaned
-        .replace(/\s*([+:])\s*/g, '$1')
-        .replace(/T\s+/g, 'T')
-        .replace(/\s+(\d{2}:\d{2})/g, '$1')
-        .replace(/(\d{2})\s*([+-]\d{2}:\d{2})/g, '$1$2');
+        .replace(ISO_PUNCT_SPACES, '$1')
+        .replace(ISO_T_SPACE, 'T')
+        .replace(ISO_TIME_SPACE, '$1')
+        .replace(ISO_TZ_SPACE, '$1$2');
 
     // Format dates: first one inline, others with double newline before
-    const dateRegex = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2})/g;
     let dateCount = 0;
 
-    let result = cleaned.replace(dateRegex, (match) => {
+    let result = cleaned.replace(DATE_RE, (match) => {
         try {
             const date = new Date(match);
             if (isNaN(date.getTime())) return match;
@@ -45,10 +67,10 @@ export function cleanAndFormatString(input) {
     });
 
     // Replace separators with newline
-    result = result.replace(/\s*(?:\|+|[-–—]+|and|,\s*)\s*/gi, '\n');
+    result = result.replace(SEPARATOR_RE, '\n');
 
     // Clean up multiple newlines
-    result = result.replace(/\n{4,}/g, '\n\n').trim();
+    result = result.replace(MULTI_NEWLINES_RE, '\n\n').trim();
 
     return result;
 }

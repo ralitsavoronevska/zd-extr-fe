@@ -4,8 +4,9 @@ import { computed, ref } from 'vue';
 
 // Cache for the auth instance (closure variable – lives as long as the store)
 let cachedAuth = null;
-// Store unsubscribe function to clean up listener
+// Store unsubscribe functions to clean up listeners
 let unsubscribeAuth = null;
+let visibilityHandler = null;
 
 export const useAuthStore = defineStore('auth', () => {
     const user = ref(null); // { uid, email, displayName }
@@ -106,10 +107,14 @@ export const useAuthStore = defineStore('auth', () => {
 
     // ====================== LOGOUT ======================
     async function logout() {
-        // Clean up Firebase listener before logout
+        // Clean up Firebase listeners before logout
         if (isFirebase && unsubscribeAuth) {
             unsubscribeAuth();
             unsubscribeAuth = null;
+        }
+        if (visibilityHandler) {
+            document.removeEventListener('visibilitychange', visibilityHandler);
+            visibilityHandler = null;
         }
 
         if (isFirebase) {
@@ -146,9 +151,14 @@ export const useAuthStore = defineStore('auth', () => {
 
                     let isInitialCheck = true;
 
+                    // Clean up previous visibility listener if one exists
+                    if (visibilityHandler) {
+                        document.removeEventListener('visibilitychange', visibilityHandler);
+                    }
+
                     // Re-validate auth when user returns to the tab
                     // (catches cleared IndexedDB, expired tokens, etc.)
-                    document.addEventListener('visibilitychange', async () => {
+                    visibilityHandler = async () => {
                         if (document.visibilityState === 'visible' && user.value) {
                             try {
                                 await auth.currentUser?.reload();
@@ -158,7 +168,8 @@ export const useAuthStore = defineStore('auth', () => {
                                 window.location.href = `${import.meta.env.BASE_URL}login`;
                             }
                         }
-                    });
+                    };
+                    document.addEventListener('visibilitychange', visibilityHandler);
 
                     // Set up listener and store unsubscribe function for cleanup
                     unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {

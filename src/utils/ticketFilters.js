@@ -30,27 +30,26 @@ export function applyTicketFilters(data, params = {}) {
     let result = data;
 
     // Global search — covers all text fields and chat tags
+    // Uses short-circuit || chain instead of array allocation (avoids 360k+ allocations on 30k dataset)
     if (globalFilter) {
-        const searchLower = globalFilter.toLowerCase();
-        result = result.filter((item) => {
-            const stringMatch = [
-                String(item.ticketid || ''),
-                item.topic || '',
-                item.brand || '',
-                item.vip_level || '',
-                item.customer_email || '',
-                item.agent_email || '',
-                item.csat_score || '',
-                item.csat_reason || '',
-                item.sentiment || '',
-                item.summary || '',
-                item.chat_transcript || '',
-                item.email_transcript || ''
-            ].some((val) => val.toLowerCase().includes(searchLower));
-
-            const tagsMatch = item.chat_tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false;
-            return stringMatch || tagsMatch;
-        });
+        const searchLower = globalFilter.trim().toLowerCase();
+        if (searchLower) {
+            result = result.filter((item) =>
+                String(item.ticketid || '').toLowerCase().includes(searchLower) ||
+                (item.topic || '').toLowerCase().includes(searchLower) ||
+                (item.brand || '').toLowerCase().includes(searchLower) ||
+                (item.vip_level || '').toLowerCase().includes(searchLower) ||
+                (item.customer_email || '').toLowerCase().includes(searchLower) ||
+                (item.agent_email || '').toLowerCase().includes(searchLower) ||
+                (item.csat_score || '').toLowerCase().includes(searchLower) ||
+                (item.csat_reason || '').toLowerCase().includes(searchLower) ||
+                (item.sentiment || '').toLowerCase().includes(searchLower) ||
+                (item.summary || '').toLowerCase().includes(searchLower) ||
+                (item.chat_transcript || '').toLowerCase().includes(searchLower) ||
+                (item.email_transcript || '').toLowerCase().includes(searchLower) ||
+                (item.chat_tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false)
+            );
+        }
     }
 
     // Ticket ID — exact match
