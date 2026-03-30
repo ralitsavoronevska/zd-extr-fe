@@ -1,5 +1,5 @@
 import api from '@/services/authApi';
-import { ref } from 'vue';
+import { ref, shallowRef } from 'vue';
 import { emptyToNone, normalizeTranscript } from '@/utils/normalization';
 import { getCachedTickets, setCachedTickets, isCacheStale } from '@/services/ticketCache';
 
@@ -9,7 +9,7 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 let isInitialized = false;
 let initPromise = null;
 
-const fullProcessedTickets = ref([]);
+const fullProcessedTickets = shallowRef([]);
 const isLoading = ref(false);
 const fetchError = ref(null);
 

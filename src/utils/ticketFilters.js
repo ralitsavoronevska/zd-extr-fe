@@ -3,6 +3,10 @@
  * Single source of truth used by both TableDoc (client-side computed)
  * and TicketService (mock data pagination).
  *
+ * Performance: single-pass loop with early-exit `continue` — no intermediate
+ * arrays. Filter values are pre-computed outside the loop so each iteration
+ * is a cheap comparison chain.
+ *
  * @param {Array} data - Array of ticket objects (processed or raw)
  * @param {Object} params - Flat filter params (all optional, safe to omit)
  * @returns {Array} New filtered array (original is not mutated)
@@ -12,7 +16,7 @@ export function applyTicketFilters(data, params = {}) {
         globalFilter = '',
         ticketid = null,
         brand = [],
-        topic = null,
+        topic = [],
         vip_level = [],
         customer_email = [],
         agent_email = [],
@@ -27,84 +31,67 @@ export function applyTicketFilters(data, params = {}) {
         endDate = null
     } = params;
 
-    let result = data;
+    // Pre-compute filter values once (outside the loop)
+    const globalLower = globalFilter?.trim().toLowerCase() || '';
+    const ticketIdStr = ticketid ? String(ticketid).trim() : '';
+    const brandSet = brand.length ? new Set(brand) : null;
+    const vipSet = vip_level.length ? new Set(vip_level) : null;
+    const custEmailLower = customer_email.length ? customer_email.map((e) => e.toLowerCase()) : null;
+    const agentEmailLower = agent_email.length ? agent_email.map((e) => e.toLowerCase()) : null;
+    const hasTags = _chatTagsString.length > 0;
+    const csatVal = csat_score || '';
+    const sentimentLower = sentiment?.trim().toLowerCase() || '';
+    const topicSet = topic.length ? new Set(topic) : null;
+    const sentimentReasonLower = sentiment_reason?.toLowerCase() || '';
+    const chatTranscriptLower = chat_transcript?.toLowerCase() || '';
+    const emailTranscriptLower = email_transcript?.toLowerCase() || '';
+    const summaryLower = summary?.toLowerCase() || '';
+    const startMs = startDate ? new Date(startDate).getTime() : 0;
+    const endMs = endDate ? new Date(endDate).getTime() : 0;
 
-    // Global search — uses pre-computed _searchIndex (single lowercase string per row)
-    // to avoid 13× toLowerCase calls per row on every keystroke
-    if (globalFilter) {
-        const searchLower = globalFilter.trim().toLowerCase();
-        if (searchLower) {
-            result = result.filter((item) => item._searchIndex.includes(searchLower));
-        }
-    }
+    const result = [];
 
-    // Ticket ID — exact match
-    if (ticketid) {
-        const idStr = String(ticketid).trim();
-        if (idStr) result = result.filter((item) => String(item.ticketid) === idStr);
-    }
+    for (let i = 0; i < data.length; i++) {
+        const item = data[i];
 
-    // Multi-select filters
-    if (brand.length) result = result.filter((item) => brand.includes(item.brand));
-    if (vip_level.length) result = result.filter((item) => vip_level.includes(item.vip_level));
-    if (customer_email.length) {
-        const lowerEmails = customer_email.map((e) => e.toLowerCase());
-        result = result.filter((item) => {
+        // Global search — uses pre-computed _searchIndex
+        if (globalLower && !item._searchIndex.includes(globalLower)) continue;
+
+        // Ticket ID — exact match
+        if (ticketIdStr && String(item.ticketid) !== ticketIdStr) continue;
+
+        // Multi-select filters
+        if (brandSet && !brandSet.has(item.brand)) continue;
+        if (vipSet && !vipSet.has(item.vip_level)) continue;
+
+        if (custEmailLower) {
             const val = item.customer_email?.toLowerCase();
-            return val && lowerEmails.some((e) => val.includes(e));
-        });
-    }
-    if (agent_email.length) {
-        const lowerEmails = agent_email.map((e) => e.toLowerCase());
-        result = result.filter((item) => {
+            if (!val || !custEmailLower.some((e) => val.includes(e))) continue;
+        }
+
+        if (agentEmailLower) {
             const val = item.agent_email?.toLowerCase();
-            return val && lowerEmails.some((e) => val.includes(e));
-        });
-    }
-    if (_chatTagsString.length) result = result.filter((item) => _chatTagsString.some((tag) => item.chat_tags?.includes(tag)));
+            if (!val || !agentEmailLower.some((e) => val.includes(e))) continue;
+        }
 
-    // Single-value exact filters
-    if (csat_score) result = result.filter((item) => item.csat_score === csat_score);
+        if (hasTags && !_chatTagsString.some((tag) => item.chat_tags?.includes(tag))) continue;
 
-    if (sentiment?.trim()) {
-        const sentimentLower = sentiment.trim().toLowerCase();
-        result = result.filter((item) => item.sentiment?.trim().toLowerCase() === sentimentLower);
-    }
+        // Single-value exact filters
+        if (csatVal && item.csat_score !== csatVal) continue;
+        if (sentimentLower && item.sentiment?.trim().toLowerCase() !== sentimentLower) continue;
 
-    // Text contains filters
-    if (topic) {
-        const topicLower = topic.toLowerCase();
-        result = result.filter((item) => item.topic?.toLowerCase().includes(topicLower));
-    }
+        // Text contains filters
+        if (topicSet && !topicSet.has(item.topic)) continue;
+        if (sentimentReasonLower && !item.sentiment_reason?.toLowerCase().includes(sentimentReasonLower)) continue;
+        if (chatTranscriptLower && !item.chat_transcript?.toLowerCase().includes(chatTranscriptLower)) continue;
+        if (emailTranscriptLower && !item.email_transcript?.toLowerCase().includes(emailTranscriptLower)) continue;
+        if (summaryLower && !item.summary?.toLowerCase().includes(summaryLower)) continue;
 
-    if (sentiment_reason) {
-        const csatReasonLower = sentiment_reason.toLowerCase();
-        result = result.filter((item) => item.sentiment_reason?.toLowerCase().includes(csatReasonLower));
-    }
+        // Date range — item.timestamp is already a Date object from processTicket
+        if (startMs && item.timestamp.getTime() < startMs) continue;
+        if (endMs && item.timestamp.getTime() >= endMs) continue;
 
-    if (chat_transcript) {
-        const lower = chat_transcript.toLowerCase();
-        result = result.filter((item) => item.chat_transcript?.toLowerCase().includes(lower));
-    }
-
-    if (email_transcript) {
-        const lower = email_transcript.toLowerCase();
-        result = result.filter((item) => item.email_transcript?.toLowerCase().includes(lower));
-    }
-
-    if (summary) {
-        const lower = summary.toLowerCase();
-        result = result.filter((item) => item.summary?.toLowerCase().includes(lower));
-    }
-
-    // Date range — item.timestamp is already a Date object from processTicket
-    if (startDate) {
-        const startMs = new Date(startDate).getTime();
-        result = result.filter((item) => item.timestamp.getTime() >= startMs);
-    }
-    if (endDate) {
-        const endMs = new Date(endDate).getTime();
-        result = result.filter((item) => item.timestamp.getTime() < endMs);
+        result.push(item);
     }
 
     return result;

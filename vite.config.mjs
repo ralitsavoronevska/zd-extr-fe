@@ -43,22 +43,31 @@ export default defineConfig({
             }
         },
         {
-            // Rewrite primeicons font URL references to /zd-extr-fe/fonts/primeicons/
-            // so Vite doesn't bundle them into dist/assets/ (absolute URLs are not processed as assets).
-            // The actual files live in public/fonts/primeicons/ — committed to git, frozen from package updates.
-            // enforce: 'pre' ensures this runs BEFORE Vite's CSS plugin processes url() references.
+            // Rewrite primeicons font URLs in the final CSS output to point to public/fonts/primeicons/.
+            // Vite's asset pipeline hashes and resolves url() paths before plugin transforms can intercept
+            // them (even with enforce:'pre'), so we rewrite in generateBundle after all processing is done.
             name: 'primeicons-local-fonts',
-            enforce: 'pre',
-            transform(code, id) {
-                if (!id.includes('primeicons') || !id.endsWith('.css')) return null;
-                return code.replace(/url\(['"]?\.\/fonts\/(primeicons\.[^'"?)\s]+)[^'")\s]*['"]?\)/g, "url('/zd-extr-fe/fonts/primeicons/$1')");
-            },
-            // Safety net: remove any primeicons font files that still ended up in dist/assets/.
-            // Bundle keys use hashed names (e.g. assets/primeicons-C6QP2o4f.woff2) — match accordingly.
+            enforce: 'post',
             generateBundle(_, bundle) {
-                const primeiconsFontRE = /primeicons[^/]*\.(eot|svg|ttf|woff2?)$/;
+                const hashedFontRE = /primeicons[^/]*\.(eot|svg|ttf|woff2?)$/;
+                // Map hashed filenames back to original names (e.g. primeicons-C6QP2o4f.woff2 → primeicons.woff2)
+                const hashToOriginal = {};
                 for (const key of Object.keys(bundle)) {
-                    if (primeiconsFontRE.test(key)) delete bundle[key];
+                    if (hashedFontRE.test(key)) {
+                        const ext = key.match(/\.(eot|svg|ttf|woff2?)$/)[0];
+                        hashToOriginal[key.split('/').pop()] = `primeicons${ext}`;
+                        delete bundle[key];
+                    }
+                }
+                // Rewrite CSS url() references from hashed assets to /zd-extr-fe/fonts/primeicons/
+                for (const key of Object.keys(bundle)) {
+                    if (bundle[key].type === 'asset' && key.endsWith('.css')) {
+                        let css = bundle[key].source;
+                        for (const [hashed, original] of Object.entries(hashToOriginal)) {
+                            css = css.replaceAll(hashed, `../fonts/primeicons/${original}`);
+                        }
+                        bundle[key].source = css;
+                    }
                 }
             }
         }
@@ -70,7 +79,18 @@ export default defineConfig({
                 manualChunks(id) {
                     if (!id.includes('node_modules')) return;
 
+                    // Aura theme preset — large (~200 KB), loaded async via dynamic import in main.js
+                    if (id.includes('@primeuix')) {
+                        return 'primevue-theme';
+                    }
+
+                    // PrimeVue config/services — tiny, loaded async alongside theme
+                    if (id.includes('primevue/config') || id.includes('primevue/confirmationservice') || id.includes('primevue/toastservice')) {
+                        return 'primevue-config';
+                    }
+
                     // PrimeVue MUST be checked before 'vue' — 'primevue' contains 'vue'
+                    // Component library loads lazily via route components
                     if (id.includes('primevue') || id.includes('primeicons') || id.includes('@primevue')) {
                         return 'primevue';
                     }

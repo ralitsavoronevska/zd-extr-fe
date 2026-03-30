@@ -25,10 +25,24 @@
 	<noscript>
 		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@500;600;700&display=swap">
 	</noscript>
+
+	<!-- Restore dark mode before first paint to avoid white flash -->
+	<script>
+		if (localStorage.getItem('app-dark-mode') === 'true')
+			document.documentElement.classList.add('app-dark');
+	</script>
 </head>
 
 <body>
-	<div id="app"></div>
+	<!-- Static shell: browser renders instantly from HTML; Vue replaces on mount -->
+	<div id="app">
+		<header style="position:fixed;height:4rem;z-index:997;left:0;top:0;width:100%;padding:0 2rem;display:flex;align-items:center;background:var(--surface-card,#fff);box-shadow:.08rem .08rem .25rem rgba(0,0,0,.12);font-family:ui-sans-serif,system-ui,sans-serif">
+			<span style="font-weight:700;font-size:1.15rem;letter-spacing:-.02em;color:var(--text-color,#1e1e1e)">Convergence</span>
+		</header>
+		<main style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:ui-sans-serif,system-ui,sans-serif;background:var(--surface-ground,#f8f9fa)">
+			<span style="color:var(--text-color-secondary,#888)">Loading...</span>
+		</main>
+	</div>
 	<script type="module" src="/src/main.js" defer></script>
 </body>
 

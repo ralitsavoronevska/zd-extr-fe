@@ -73,7 +73,7 @@ async function handleLogin() {
         <FloatingConfigurator />
         <div class="bg-surface-50 dark:bg-surface-950 flex items-center justify-center min-h-screen overflow-hidden">
             <div class="flex flex-col items-center justify-center">
-                <div class="rounded-[56px] p-[0.3rem] bg-[linear-gradient(180deg,var(--primary-color)_10%,rgba(33,150,243,0)_30%)]">
+                <div class="rounded-[56px] p-[0.3rem] bg-[linear-gradient(180deg,var(--primary-color)_10%,var(--app-btn-outlined-border)_30%)]">
                     <div class="rounded-[53px] w-full bg-surface-0 dark:bg-surface-900 py-20 px-8 sm:px-20">
                         <div class="text-center mb-8">
                             <Logo class="mx-auto mb-8" />

@@ -18,7 +18,6 @@ export function useFacetedFilterOptions(filters, tickets) {
     const baseFilterParams = computed(() => ({
         globalFilter: filters.value.global?.value || '',
         ticketid: filters.value.ticketid?.value,
-        topic: filters.value.topic?.value,
         csat_score: filters.value.csat_score?.value,
         sentiment: filters.value.sentiment?.value,
         sentiment_reason: filters.value.sentiment_reason?.value,
@@ -31,6 +30,7 @@ export function useFacetedFilterOptions(filters, tickets) {
 
     // All currently active multiselect values
     const activeMultiselects = computed(() => ({
+        topic: filters.value.topic?.value ?? [],
         brand: filters.value.brand?.value ?? [],
         vip_level: filters.value.vip_level?.value ?? [],
         customer_email: filters.value.customer_email?.value ?? [],
@@ -41,27 +41,29 @@ export function useFacetedFilterOptions(filters, tickets) {
     // Step 1: Apply base (non-multiselect) filters once — shared by all facets
     const baseFiltered = computed(() => applyTicketFilters(tickets.value, baseFilterParams.value));
 
-    // Step 2: Single-pass bitmask aggregation — replaces 7 separate filter passes
+    // Step 2: Single-pass bitmask aggregation — replaces separate filter passes
     //
-    // Bit positions: brand=1, vip_level=2, customer_email=4, agent_email=8, _chatTagsString=16
-    // ALL_PASS = 0b11111 = 31
+    // Bit positions: topic=1, brand=2, vip_level=4, customer_email=8, agent_email=16, _chatTagsString=32
+    // ALL_PASS = 0b111111 = 63
     //
     // For each row, compute which multiselect filters it passes (bitmask).
     // A row's value belongs in facet X's dropdown if the row passes all
     // OTHER multiselects — i.e. (mask | bitForX) === ALL_PASS.
-    const ALL_PASS = 31;
+    const ALL_PASS = 63;
 
     const facetedResult = computed(() => {
         const data = baseFiltered.value;
         const ms = activeMultiselects.value;
 
         // Pre-compute filter lookup structures (once, outside the loop)
+        const topicSet = ms.topic.length ? new Set(ms.topic) : null;
         const brandSet = ms.brand.length ? new Set(ms.brand) : null;
         const vipSet = ms.vip_level.length ? new Set(ms.vip_level) : null;
         const custEmailLower = ms.customer_email.length ? ms.customer_email.map((e) => e.toLowerCase()) : null;
         const agentEmailLower = ms.agent_email.length ? ms.agent_email.map((e) => e.toLowerCase()) : null;
         const tagsSet = ms._chatTagsString.length ? new Set(ms._chatTagsString) : null;
 
+        const topics = new Set();
         const brands = new Set();
         const vipLevels = new Set();
         const customerEmails = new Set();
@@ -75,18 +77,20 @@ export function useFacetedFilterOptions(filters, tickets) {
             let mask = 0;
 
             // Test each multiselect filter for this row
-            if (!brandSet || brandSet.has(row.brand)) mask |= 1;
-            if (!vipSet || vipSet.has(row.vip_level)) mask |= 2;
-            if (!custEmailLower || (row.customer_email && custEmailLower.some((e) => row.customer_email.toLowerCase().includes(e)))) mask |= 4;
-            if (!agentEmailLower || (row.agent_email && agentEmailLower.some((e) => row.agent_email.toLowerCase().includes(e)))) mask |= 8;
-            if (!tagsSet || row.chat_tags?.some((t) => tagsSet.has(t))) mask |= 16;
+            if (!topicSet || topicSet.has(row.topic)) mask |= 1;
+            if (!brandSet || brandSet.has(row.brand)) mask |= 2;
+            if (!vipSet || vipSet.has(row.vip_level)) mask |= 4;
+            if (!custEmailLower || (row.customer_email && custEmailLower.some((e) => row.customer_email.toLowerCase().includes(e)))) mask |= 8;
+            if (!agentEmailLower || (row.agent_email && agentEmailLower.some((e) => row.agent_email.toLowerCase().includes(e)))) mask |= 16;
+            if (!tagsSet || row.chat_tags?.some((t) => tagsSet.has(t))) mask |= 32;
 
             // Collect facet values — row qualifies for facet X if all OTHER filters pass
-            if ((mask | 1) === ALL_PASS && row.brand) brands.add(row.brand);
-            if ((mask | 2) === ALL_PASS && row.vip_level) vipLevels.add(row.vip_level);
-            if ((mask | 4) === ALL_PASS && row.customer_email) customerEmails.add(row.customer_email);
-            if ((mask | 8) === ALL_PASS && row.agent_email) agentEmails.add(row.agent_email);
-            if ((mask | 16) === ALL_PASS && row.chat_tags) {
+            if ((mask | 1) === ALL_PASS && row.topic) topics.add(row.topic);
+            if ((mask | 2) === ALL_PASS && row.brand) brands.add(row.brand);
+            if ((mask | 4) === ALL_PASS && row.vip_level) vipLevels.add(row.vip_level);
+            if ((mask | 8) === ALL_PASS && row.customer_email) customerEmails.add(row.customer_email);
+            if ((mask | 16) === ALL_PASS && row.agent_email) agentEmails.add(row.agent_email);
+            if ((mask | 32) === ALL_PASS && row.chat_tags) {
                 for (const tag of row.chat_tags) chatTags.add(tag);
             }
 
@@ -100,6 +104,7 @@ export function useFacetedFilterOptions(filters, tickets) {
         const sortFn = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
 
         return {
+            topics: [...topics].sort(sortFn),
             brands: [...brands].sort(sortFn),
             vipLevels: [...vipLevels].sort(sortFn),
             customerEmails: [...customerEmails].sort(sortFn),
@@ -111,6 +116,7 @@ export function useFacetedFilterOptions(filters, tickets) {
     });
 
     // Thin computed wrappers — read from the single cached result
+    const availableTopics = computed(() => facetedResult.value.topics);
     const availableBrands = computed(() => facetedResult.value.brands);
     const availableVipLevels = computed(() => facetedResult.value.vipLevels);
     const availableCustomerEmails = computed(() => facetedResult.value.customerEmails);
@@ -120,6 +126,7 @@ export function useFacetedFilterOptions(filters, tickets) {
     const availableCsatScores = computed(() => facetedResult.value.csatScores);
 
     return {
+        availableTopics,
         availableBrands,
         availableVipLevels,
         availableCustomerEmails,

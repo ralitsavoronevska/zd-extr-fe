@@ -2,6 +2,14 @@
 @use 'primeicons/primeicons.css';
 @use '@/assets/layout/layout.scss';
 
+/* Ensure primeicons font shows text immediately while loading (prevents FOIT) */
+@font-face {
+    font-family: 'primeicons';
+    font-display: swap;
+    src: url('/fonts/primeicons/primeicons.woff2') format('woff2'),
+         url('/fonts/primeicons/primeicons.woff') format('woff');
+}
+
 /* ── Theme-aware CSS custom properties ─────────────────────────────────────
    Define light defaults here; dark overrides in html.app-dark below.
    All component rules reference these vars — no duplicated light/dark blocks.
@@ -74,6 +82,18 @@ html {
     color: var(--app-dt-info-color) !important;
 }
 
+/* ── Active quick date filter ────────────────────────────────────────────── */
+.p-button.dt-period-active.p-button-outlined {
+    background: var(--app-btn-primary-bg) !important;
+    border-color: var(--app-btn-primary-border) !important;
+    color: #fff !important;
+
+    &:hover {
+        background: var(--app-btn-primary-hover-bg) !important;
+        border-color: var(--app-btn-primary-hover-border) !important;
+    }
+}
+
 /* ── Text primary ─────────────────────────────────────────────────────────── */
 .text-primary {
     color: var(--app-text-primary) !important;
@@ -101,7 +121,7 @@ html {
 
 /* ── Primary button overrides ─────────────────────────────────────────────── */
 .p-button {
-    &.w-full,
+    &.w-full:not(.dt-period-filters),
     &.p-datatable-filter-apply-button {
         background: var(--app-btn-primary-bg) !important;
         border: 1px solid var(--app-btn-primary-border) !important;

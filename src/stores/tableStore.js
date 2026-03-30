@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { NEGATIVE_SENTIMENTS } from '@/config/enums';
 
 // O(1) lookup instead of Array.includes O(n) — called per row
 const NEGATIVE_SET = new Set(NEGATIVE_SENTIMENTS);
 
 export const useTableStore = defineStore('table', () => {
-    const filteredTickets = ref([]);
+    const filteredTickets = shallowRef([]);
 
     function setFilteredTickets(rows) {
         filteredTickets.value = rows || [];
