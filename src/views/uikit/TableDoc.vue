@@ -119,7 +119,7 @@ const dialog = reactive({ visible: false, type: '', transcript: '', date: null }
 
 const openDialog = (type, transcript, timestamp) => {
     dialog.type = type;
-    dialog.transcript = transcript;
+    dialog.transcript = cleanAndFormatString(transcript) || transcript;
     dialog.date = timestamp;
     dialog.visible = true;
 };
@@ -318,7 +318,9 @@ function clearFilter() {
                 Showing <strong>{{ totalRecords }}</strong> filtered {{ totalRecords.length > 1 ? 'tickets' : 'ticket' }}.
             </p>
             <p class="inline-block dt-info-p rounded-xl py-2 px-3 m-0!" v-else>No tickets found.</p>
-            <p class="inline-block p-tag-info rounded-xl py-2 px-3 mb-0! mt-2! lg:ml-2! lg:mt-0!" v-if="totalRecords > 0">Tip: Use filters to narrow results. Export includes all filtered results.</p>
+            <p class="inline-block p-tag-info rounded-xl py-2 px-3 mb-0! mt-2! lg:ml-2! lg:mt-0!" v-if="totalRecords > 0">
+                Tip: For best visualization of the exported ticket data in Excel, use Data > Get Data > From Text/CSV. Save the export as a .xlsx file to retain formatting.
+            </p>
         </div>
 
         <DataTable
@@ -350,7 +352,7 @@ function clearFilter() {
                         <div class="flex gap-2">
                             <Button :class="`dt-period-filters ${activeQuickFilter === 'today' ? 'dt-period-active' : ''}`" label="Today" icon="pi pi-calendar" outlined size="small" @click="setQuickDateFilter('today')" aria-label="Filter by today" />
                             <Button :class="`dt-period-filters ${activeQuickFilter === 'week' ? 'dt-period-active' : ''}`" label="Last 7 Days" outlined size="small" @click="setQuickDateFilter('week')" aria-label="Filter by last 7 days" />
-                            <Button :class="`dt-period-filters ${activeQuickFilter === 'month' ? 'dt-period-active' : ''}`" label="Last 30 Days" outlined size="small" @click="setQuickDateFilter('month')" aria-label="Filter by last 30 days" />
+                            <Button :class="`dt-period-filters ${activeQuickFilter === 'month' ? 'dt-period-active' : ''}`" label="Last Month" outlined size="small" @click="setQuickDateFilter('month')" aria-label="Filter by last 30 days" />
                             <Button :class="`dt-period-filters ${activeQuickFilter === '2 months' ? 'dt-period-active' : ''}`" label="Last 2 Months" outlined size="small" @click="setQuickDateFilter('2 months')" aria-label="Filter by last 2 months" />
                             <Button :class="`dt-period-filters ${activeQuickFilter === '3 months' ? 'dt-period-active' : ''}`" label="Last 3 Months" outlined size="small" @click="setQuickDateFilter('3 months')" aria-label="Filter by last 3 months" />
                         </div>

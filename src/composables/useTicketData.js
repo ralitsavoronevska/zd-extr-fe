@@ -1,6 +1,6 @@
 import api from '@/services/authApi';
 import { ref, shallowRef } from 'vue';
-import { emptyToNone, normalizeTranscript } from '@/utils/normalization';
+import { emptyToNone } from '@/utils/normalization';
 import { getCachedTickets, setCachedTickets, isCacheStale } from '@/services/ticketCache';
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_DATA === 'true';
@@ -16,9 +16,6 @@ const fetchError = ref(null);
 // ── Fields that get emptyToNone normalization (short categorical fields) ──
 const NORMALIZE_FIELDS = ['topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment'];
 
-// ── Long-text fields cleaned via normalizeTranscript ──
-const LONG_TEXT_FIELDS = ['summary', 'chat_transcript', 'email_transcript', 'sentiment_reason'];
-
 // ── Helpers ──
 const toArray = (value) => {
     if (Array.isArray(value)) return value;
@@ -32,7 +29,6 @@ const toArray = (value) => {
 function processTicket(ticket) {
     const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
     const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
-    const longText = Object.fromEntries(LONG_TEXT_FIELDS.map((field) => [field, normalizeTranscript(ticket[field])]));
     // Extract category prefix before "|" (e.g. "Deposits | Conversation with..." → "Deposits")
     if (normalized.topic && normalized.topic !== 'none') {
         const idx = normalized.topic.indexOf('|');
@@ -43,34 +39,15 @@ function processTicket(ticket) {
         .sort()
         .join(', ');
 
+    // Long-text fields: store raw values — normalizeTranscript runs on-demand when displayed
     const processed = {
         ...ticket,
         ...normalized,
-        ...longText,
         timestamp: new Date(ticket.timestamp),
         started_at: ticket.started_at ? new Date(ticket.started_at) : null,
         updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
         _chatTagsString: chatTagsString
     };
-
-    // Pre-computed lowercase search index — avoids 13× toLowerCase per row during global filter
-    processed._searchIndex = [
-        String(processed.ticketid || ''),
-        processed.topic || '',
-        processed.brand || '',
-        processed.vip_level || '',
-        processed.customer_email || '',
-        processed.agent_email || '',
-        processed.csat_score || '',
-        processed.sentiment || '',
-        processed.sentiment_reason || '',
-        processed.summary || '',
-        processed.chat_transcript || '',
-        processed.email_transcript || '',
-        chatTagsString
-    ]
-        .join('\0')
-        .toLowerCase();
 
     return processed;
 }

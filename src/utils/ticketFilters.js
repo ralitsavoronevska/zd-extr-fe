@@ -62,8 +62,29 @@ export function applyTicketFilters(data, params = {}) {
     for (let i = 0; i < data.length; i++) {
         const item = data[i];
 
-        // Global search — uses pre-computed _searchIndex
-        if (globalLower && !item._searchIndex.includes(globalLower)) continue;
+        // Global search — build _searchIndex lazily on first global filter use
+        if (globalLower) {
+            if (!item._searchIndex) {
+                item._searchIndex = [
+                    String(item.ticketid || ''),
+                    item.topic || '',
+                    item.brand || '',
+                    item.vip_level || '',
+                    item.customer_email || '',
+                    item.agent_email || '',
+                    item.csat_score || '',
+                    item.sentiment || '',
+                    item.sentiment_reason || '',
+                    item.summary || '',
+                    item.chat_transcript || '',
+                    item.email_transcript || '',
+                    item._chatTagsString || ''
+                ]
+                    .join('\0')
+                    .toLowerCase();
+            }
+            if (!item._searchIndex.includes(globalLower)) continue;
+        }
 
         // Ticket ID — exact match
         if (ticketIdStr && String(item.ticketid) !== ticketIdStr) continue;
