@@ -28,7 +28,11 @@ export function applyTicketFilters(data, params = {}) {
         email_transcript = null,
         summary = null,
         startDate = null,
-        endDate = null
+        endDate = null,
+        startedAtStart = null,
+        startedAtEnd = null,
+        updatedAtStart = null,
+        updatedAtEnd = null
     } = params;
 
     // Pre-compute filter values once (outside the loop)
@@ -48,6 +52,10 @@ export function applyTicketFilters(data, params = {}) {
     const summaryLower = summary?.toLowerCase() || '';
     const startMs = startDate ? new Date(startDate).getTime() : 0;
     const endMs = endDate ? new Date(endDate).getTime() : 0;
+    const startedAtStartMs = startedAtStart ? new Date(startedAtStart).getTime() : 0;
+    const startedAtEndMs = startedAtEnd ? new Date(startedAtEnd).getTime() : 0;
+    const updatedAtStartMs = updatedAtStart ? new Date(updatedAtStart).getTime() : 0;
+    const updatedAtEndMs = updatedAtEnd ? new Date(updatedAtEnd).getTime() : 0;
 
     const result = [];
 
@@ -90,6 +98,14 @@ export function applyTicketFilters(data, params = {}) {
         // Date range — item.timestamp is already a Date object from processTicket
         if (startMs && item.timestamp.getTime() < startMs) continue;
         if (endMs && item.timestamp.getTime() >= endMs) continue;
+
+        // started_at date range
+        if (startedAtStartMs && (!item.started_at || item.started_at.getTime() < startedAtStartMs)) continue;
+        if (startedAtEndMs && (!item.started_at || item.started_at.getTime() >= startedAtEndMs)) continue;
+
+        // updated_at date range
+        if (updatedAtStartMs && (!item.updated_at || item.updated_at.getTime() < updatedAtStartMs)) continue;
+        if (updatedAtEndMs && (!item.updated_at || item.updated_at.getTime() >= updatedAtEndMs)) continue;
 
         result.push(item);
     }

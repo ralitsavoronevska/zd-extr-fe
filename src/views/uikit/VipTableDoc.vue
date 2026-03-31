@@ -54,7 +54,7 @@ function initVipStats(dateKeys) {
 
 function aggregateTickets(vipStats, tickets) {
     tickets.forEach((ticket) => {
-        const vip = (ticket.vip_level || 'none').toLowerCase();
+        const vip = ticket.vip_level.toLowerCase();
         const ts = new Date(ticket.timestamp);
         ts.setHours(0, 0, 0, 0);
         const dateKey = ts.toISOString().split('T')[0];

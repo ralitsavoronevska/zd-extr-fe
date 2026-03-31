@@ -25,7 +25,11 @@ export function useFacetedFilterOptions(filters, tickets) {
         email_transcript: filters.value.email_transcript?.value,
         summary: filters.value.summary?.value,
         startDate: filters.value.timestamp?.constraints?.[0]?.value,
-        endDate: filters.value.timestamp?.constraints?.[1]?.value
+        endDate: filters.value.timestamp?.constraints?.[1]?.value,
+        startedAtStart: filters.value.started_at?.constraints?.[0]?.value,
+        startedAtEnd: filters.value.started_at?.constraints?.[1]?.value,
+        updatedAtStart: filters.value.updated_at?.constraints?.[0]?.value,
+        updatedAtEnd: filters.value.updated_at?.constraints?.[1]?.value
     }));
 
     // All currently active multiselect values

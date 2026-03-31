@@ -19,7 +19,7 @@ const authStore = useAuthStore();
 const isAdmin = computed(() => authStore.hasRole('admin'));
 
 const maskEmail = (email) => {
-    if (!email || email === '-') return '-';
+    if (!email || email === 'none') return 'none';
     return '*'.repeat(email.length);
 };
 
@@ -72,6 +72,20 @@ const createInitialFilters = () => ({
         constraints: [
             { value: todayStart(), matchMode: FilterMatchMode.DATE_AFTER },
             { value: tomorrowStart(), matchMode: FilterMatchMode.DATE_BEFORE }
+        ]
+    },
+    started_at: {
+        operator: FilterOperator.AND,
+        constraints: [
+            { value: null, matchMode: FilterMatchMode.DATE_AFTER },
+            { value: null, matchMode: FilterMatchMode.DATE_BEFORE }
+        ]
+    },
+    updated_at: {
+        operator: FilterOperator.AND,
+        constraints: [
+            { value: null, matchMode: FilterMatchMode.DATE_AFTER },
+            { value: null, matchMode: FilterMatchMode.DATE_BEFORE }
         ]
     },
     ticketid: { value: null, matchMode: FilterMatchMode.EQUALS },
@@ -130,7 +144,11 @@ const filteredTickets = computed(() =>
         email_transcript: filters.value.email_transcript?.value,
         summary: filters.value.summary?.value,
         startDate: filters.value.timestamp?.constraints?.[0]?.value,
-        endDate: filters.value.timestamp?.constraints?.[1]?.value
+        endDate: filters.value.timestamp?.constraints?.[1]?.value,
+        startedAtStart: filters.value.started_at?.constraints?.[0]?.value,
+        startedAtEnd: filters.value.started_at?.constraints?.[1]?.value,
+        updatedAtStart: filters.value.updated_at?.constraints?.[0]?.value,
+        updatedAtEnd: filters.value.updated_at?.constraints?.[1]?.value
     })
 );
 
@@ -253,6 +271,34 @@ const toDate = computed({
     }
 });
 
+const startedAtFrom = computed({
+    get: () => filters.value.started_at?.constraints?.[0]?.value ?? null,
+    set: (val) => {
+        if (filters.value.started_at?.constraints?.[0]) filters.value.started_at.constraints[0].value = val;
+    }
+});
+
+const startedAtTo = computed({
+    get: () => filters.value.started_at?.constraints?.[1]?.value ?? null,
+    set: (val) => {
+        if (filters.value.started_at?.constraints?.[1]) filters.value.started_at.constraints[1].value = val;
+    }
+});
+
+const updatedAtFrom = computed({
+    get: () => filters.value.updated_at?.constraints?.[0]?.value ?? null,
+    set: (val) => {
+        if (filters.value.updated_at?.constraints?.[0]) filters.value.updated_at.constraints[0].value = val;
+    }
+});
+
+const updatedAtTo = computed({
+    get: () => filters.value.updated_at?.constraints?.[1]?.value ?? null,
+    set: (val) => {
+        if (filters.value.updated_at?.constraints?.[1]) filters.value.updated_at.constraints[1].value = val;
+    }
+});
+
 function clearFilter() {
     filters.value = createInitialFilters();
     // Reset date constraints to null (createInitialFilters defaults to "today")
@@ -269,7 +315,7 @@ function clearFilter() {
         <!-- Info card -->
         <div class="dt-info-card card mb-8 p-4!">
             <p class="inline-block dt-info-p rounded-xl py-2 px-3 m-0!" v-if="totalRecords > 0">
-                Showing <strong>{{ totalRecords }}</strong> filtered tickets.
+                Showing <strong>{{ totalRecords }}</strong> filtered {{ totalRecords.length > 1 ? 'tickets' : 'ticket' }}.
             </p>
             <p class="inline-block dt-info-p rounded-xl py-2 px-3 m-0!" v-else>No tickets found.</p>
             <p class="inline-block p-tag-info rounded-xl py-2 px-3 mb-0! mt-2! lg:ml-2! lg:mt-0!" v-if="totalRecords > 0">Tip: Use filters to narrow results. Export includes all filtered results.</p>
@@ -334,6 +380,30 @@ function clearFilter() {
                 </template>
             </Column>
 
+            <Column header="Started At" filterField="started_at" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 15rem">
+                <template #body="{ data }">
+                    {{ data.started_at ? formatDate(data.started_at, 'en-US', true) : '—' }}
+                </template>
+                <template #filter="{ filterModel }">
+                    <div class="flex flex-col sm:flex-row gap-2 p-2">
+                        <DatePicker v-model="startedAtFrom" placeholder="From (≥)" dateFormat="mm/dd/yy" showIcon />
+                        <DatePicker v-model="startedAtTo" placeholder="To (<)" dateFormat="mm/dd/yy" showIcon />
+                    </div>
+                </template>
+            </Column>
+
+            <Column header="Updated At" filterField="updated_at" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 15rem">
+                <template #body="{ data }">
+                    {{ data.updated_at ? formatDate(data.updated_at, 'en-US', true) : '—' }}
+                </template>
+                <template #filter="{ filterModel }">
+                    <div class="flex flex-col sm:flex-row gap-2 p-2">
+                        <DatePicker v-model="updatedAtFrom" placeholder="From (≥)" dateFormat="mm/dd/yy" showIcon />
+                        <DatePicker v-model="updatedAtTo" placeholder="To (<)" dateFormat="mm/dd/yy" showIcon />
+                    </div>
+                </template>
+            </Column>
+
             <Column header="Topic" filterField="topic" :showFilterMatchModes="false" style="min-width: 15rem">
                 <template #body="{ data }">
                     <div class="flex flex-wrap gap-1">
@@ -378,16 +448,19 @@ function clearFilter() {
 
             <Column header="Customer Email" filterField="customer_email" :showFilterMatchModes="false" style="min-width: 18rem">
                 <template #body="{ data }">
-                    {{ isAdmin ? data.customer_email || '-' : maskEmail(data.customer_email) }}
+                    {{ data.customer_email === 'none' ? '—' : isAdmin ? maskEmail(data.customer_email) : data.customer_email }}
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableCustomerEmails" placeholder="Any Customer Email" display="chip" :filter="true" showClear @change="filterCallback()" />
+                    <MultiSelect v-model="filterModel.value" :options="availableCustomerEmails" placeholder="Any Customer Email" display="chip" :filter="true" showClear @change="filterCallback()">
+                        <template v-if="!isAdmin" #option="{ option }">{{ maskEmail(option) }}</template>
+                        <template v-if="!isAdmin" #chip="{ value }">{{ maskEmail(value) }}</template>
+                    </MultiSelect>
                 </template>
             </Column>
 
             <Column header="Agent Email" filterField="agent_email" :showFilterMatchModes="false" style="min-width: 18rem">
                 <template #body="{ data }">
-                    {{ data.agent_email || '-' }}
+                    {{ data.agent_email === 'none' ? '—' : data.agent_email }}
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
                     <MultiSelect v-model="filterModel.value" :options="availableAgentEmails" placeholder="Any Agent Email" display="chip" :filter="true" showClear @change="filterCallback()" />
@@ -457,7 +530,7 @@ function clearFilter() {
 
             <Column header="Sentiment Reason" field="sentiment_reason" filterField="sentiment_reason" style="min-width: 14rem">
                 <template #body="{ data }">
-                    {{ data.sentiment_reason }}
+                    {{ data.sentiment_reason || '—' }}
                 </template>
                 <template #filter="{ filterModel }">
                     <InputText v-model="filterModel.value" type="text" placeholder="Filter by Sentiment Reason" />
@@ -466,7 +539,7 @@ function clearFilter() {
 
             <Column header="Summary" field="summary" filterField="summary" style="min-width: 45rem">
                 <template #body="{ data }">
-                    {{ data.summary }}
+                    {{ data.summary || '—' }}
                 </template>
                 <template #filter="{ filterModel }">
                     <InputText v-model="filterModel.value" type="text" placeholder="Filter by Summary" />

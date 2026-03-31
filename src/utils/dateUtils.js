@@ -5,7 +5,12 @@
  * @param {string} [locale='en-US'] - BCP 47 locale tag
  * @returns {string} Formatted date string, or empty string if value is invalid
  */
-export function formatDate(value, locale = 'en-US') {
+export function formatDate(value, locale = 'en-US', includeTime = false) {
     if (!value || !(value instanceof Date)) return '';
-    return value.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const opts = { day: '2-digit', month: '2-digit', year: 'numeric' };
+    if (includeTime) {
+        opts.hour = '2-digit';
+        opts.minute = '2-digit';
+    }
+    return value.toLocaleDateString(locale, opts);
 }

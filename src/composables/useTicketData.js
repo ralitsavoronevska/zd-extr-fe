@@ -14,10 +14,10 @@ const isLoading = ref(false);
 const fetchError = ref(null);
 
 // ── Fields that get emptyToNone normalization (short categorical fields) ──
-const NORMALIZE_FIELDS = ['topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment', 'sentiment_reason'];
+const NORMALIZE_FIELDS = ['topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment'];
 
 // ── Long-text fields cleaned via normalizeTranscript ──
-const LONG_TEXT_FIELDS = ['summary', 'chat_transcript', 'email_transcript'];
+const LONG_TEXT_FIELDS = ['summary', 'chat_transcript', 'email_transcript', 'sentiment_reason'];
 
 // ── Helpers ──
 const toArray = (value) => {
@@ -33,6 +33,11 @@ function processTicket(ticket) {
     const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
     const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
     const longText = Object.fromEntries(LONG_TEXT_FIELDS.map((field) => [field, normalizeTranscript(ticket[field])]));
+    // Extract category prefix before "|" (e.g. "Deposits | Conversation with..." → "Deposits")
+    if (normalized.topic && normalized.topic !== 'none') {
+        const idx = normalized.topic.indexOf('|');
+        if (idx !== -1) normalized.topic = normalized.topic.substring(0, idx).trim();
+    }
     const chatTagsString = tags
         .map((t) => t.trim().toLowerCase())
         .sort()
@@ -43,6 +48,8 @@ function processTicket(ticket) {
         ...normalized,
         ...longText,
         timestamp: new Date(ticket.timestamp),
+        started_at: ticket.started_at ? new Date(ticket.started_at) : null,
+        updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
         _chatTagsString: chatTagsString
     };
 
@@ -96,13 +103,13 @@ async function processRecords(rawData) {
     fullProcessedTickets.value = result;
 }
 
-// ── Fetch from API and store raw data in IDB ──
+// ── Fetch from API, process, and store processed data in IDB ──
 async function fetchAndCache() {
     const response = await api.get('/api/ticket-summaries/');
     const raw = Array.isArray(response.data) ? response.data : (response.data.results ?? []);
     await processRecords(raw);
-    // Write to IDB in the background — don't block the UI on IDB writes
-    setCachedTickets(raw).catch((err) => console.warn('IDB write failed:', err));
+    // Write processed data to IDB — subsequent loads skip processRecords entirely
+    setCachedTickets(fullProcessedTickets.value).catch((err) => console.warn('IDB write failed:', err));
 }
 
 // ── Background refresh: re-fetches silently, updates reactive state when done ──
@@ -130,12 +137,18 @@ async function lazyInit() {
                 return;
             }
 
-            // ── 1. Try IDB cache first ──
+            // ── 1. Try IDB cache first (stores processed data — no re-processing needed) ──
             const cached = await getCachedTickets().catch(() => null);
 
             if (cached?.data?.length) {
-                // Serve cached data immediately — UI renders at once
-                await processRecords(cached.data);
+                // Restore Date objects — IDB serializes them to strings
+                for (let i = 0; i < cached.data.length; i++) {
+                    const t = cached.data[i];
+                    if (t.timestamp && !(t.timestamp instanceof Date)) t.timestamp = new Date(t.timestamp);
+                    if (t.started_at && !(t.started_at instanceof Date)) t.started_at = new Date(t.started_at);
+                    if (t.updated_at && !(t.updated_at instanceof Date)) t.updated_at = new Date(t.updated_at);
+                }
+                fullProcessedTickets.value = cached.data;
                 isLoading.value = false;
                 isInitialized = true;
 

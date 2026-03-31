@@ -1,15 +1,10 @@
 import { useTableStore } from '@/stores/tableStore';
 import { computed } from 'vue';
 
-// Chrome's canvas max width is 32,767px; at 48px/bar that's ~682 bars max.
-// Cap at 100 for performance and readability — topicStats is already sorted by total desc.
-const TOP_TOPICS_LIMIT = 100;
-
 export function useTopicCharts() {
     const store = useTableStore();
 
-    // Slice to top N topics (already sorted by total desc in the store)
-    const topStats = computed(() => store.topicStats.slice(0, TOP_TOPICS_LIMIT));
+    const topStats = computed(() => store.topicStats);
 
     // Single computed derives all chart arrays in one pass instead of four separate .map() calls
     const chartArrays = computed(() => {
@@ -60,13 +55,11 @@ export function useTopicCharts() {
     }));
 
     const hasChartData = computed(() => chartArrays.value.labels.length > 0);
-    const totalTopicCount = computed(() => store.topicStats.length);
 
     return {
         barDataTotalNegative,
         barDataNegativeOnly,
         lineDataPercent,
-        hasChartData,
-        totalTopicCount
+        hasChartData
     };
 }

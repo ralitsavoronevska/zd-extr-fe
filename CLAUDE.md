@@ -36,7 +36,7 @@
 
 1. **Client-side filtering only** — All ticket data is fetched once on load. Every filter change operates on the local dataset; no API calls are made per filter.
 
-2. **Module-level singleton in `useTicketData.js`** — The composable stores data at module scope (not component scope), shared across all component instances. `_lazyInit()` fires exactly once per session. IDB cache is checked first; fresh API fetch only on a cold first visit or stale cache (>1 hour). `fullProcessedTickets` uses `shallowRef` to avoid deep-reactivity overhead on 30k+ row arrays.
+2. **Module-level singleton in `useTicketData.js`** — The composable stores data at module scope (not component scope), shared across all component instances. `_lazyInit()` fires exactly once per session. IDB cache stores **processed** data (not raw), so cache hits skip `processRecords` entirely and assign directly to `fullProcessedTickets` (only `Date` objects need restoring since IDB serializes them to strings). Fresh API fetch only on a cold first visit or stale cache (>1 hour). `fullProcessedTickets` uses `shallowRef` to avoid deep-reactivity overhead on 30k+ row arrays.
 
 3. **Batched `processRecords` to prevent main-thread blocking** — 30k tickets are processed in batches of 150. Between batches, `scheduler.yield()` (Chrome 129+) or `setTimeout(0)` hands control back to the browser, keeping each task under the 50ms long-task threshold and reducing Lighthouse TBT to near-zero.
 
@@ -268,7 +268,7 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 - `hasRole()` is a plain function (not computed) — wrap in `computed()` at the call site for reactivity: `const isAdmin = computed(() => authStore.hasRole('admin'))`
 - **Session invalidation redirect** — three layers detect lost sessions and hard-redirect to `/login`:
   1. XHR interceptor in `firebase/index.js` — catches Firestore 400 responses (e.g. cleared IndexedDB)
-  2. `visibilitychange` listener in `auth.js` — re-validates auth when user returns to the tab
+  2. `visibilitychange` listener in `auth.js` — two checks: verifies Firebase Auth's IDB still exists via `indexedDB.databases()`, then forces a token refresh via `getIdToken(true)` to catch revoked tokens
   3. `onAuthStateChanged` callback in `auth.js` — catches SDK-detected session loss (e.g. account disabled)
 - Django JWT: `authApi.js` interceptor auto-retries on 401. If looping, check `/api/auth/refresh/` endpoint
 - Firebase errors: verify all `VITE_FIREBASE_*` env vars match the Firebase console project settings
