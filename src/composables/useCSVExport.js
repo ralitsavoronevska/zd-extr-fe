@@ -98,7 +98,7 @@ export function useCSVExport(dataTable, filteredRows, formatDate) {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `tickets-${new Date().toLocaleDateString('en-CA')}.csv`;
+        link.download = `tickets-${new Date().toLocaleDateString('en-US')}.csv`;
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();

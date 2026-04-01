@@ -242,9 +242,9 @@ const setQuickDateFilter = (period) => {
 
     if (period === 'today') start.setHours(0, 0, 0, 0);
     else if (period === 'week') (start.setDate(start.getDate() - 7), start.setHours(0, 0, 0, 0));
-    else if (period === 'month') (start.setDate(start.getDate() - 30), start.setHours(0, 0, 0, 0));
-    else if (period === '2 months') (start.setDate(start.getDate() - 60), start.setHours(0, 0, 0, 0));
-    else if (period === '3 months') (start.setDate(start.getDate() - 90), start.setHours(0, 0, 0, 0));
+    else if (period === 'month') (start.setMonth(start.getMonth() - 1), start.setHours(0, 0, 0, 0));
+    else if (period === '2 months') (start.setMonth(start.getMonth() - 2), start.setHours(0, 0, 0, 0));
+    else if (period === '3 months') (start.setMonth(start.getMonth() - 3), start.setHours(0, 0, 0, 0));
 
     // Safely set date constraints
     if (filters.value?.timestamp?.constraints) {
@@ -450,7 +450,7 @@ function clearFilter() {
 
             <Column header="Customer Email" filterField="customer_email" :showFilterMatchModes="false" style="min-width: 18rem">
                 <template #body="{ data }">
-                    {{ data.customer_email === 'none' ? '—' : isAdmin ? maskEmail(data.customer_email) : data.customer_email }}
+                    {{ data.customer_email === 'none' ? '—' : !isAdmin ? maskEmail(data.customer_email) : data.customer_email }}
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
                     <MultiSelect v-model="filterModel.value" :options="availableCustomerEmails" placeholder="Any Customer Email" display="chip" :filter="true" showClear @change="filterCallback()">

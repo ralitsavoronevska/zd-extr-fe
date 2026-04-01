@@ -29,18 +29,10 @@ export function cleanAndFormatString(input) {
     if (!input || typeof input !== 'string') return input;
 
     // Remove markdown images
-    let cleaned = input
-        .replace(MD_IMG_FULL, '')
-        .replace(MD_IMG_EMPTY, '')
-        .replace(MD_IMG_BLOB, '')
-        .replace(MD_IMG_BARE, '');
+    let cleaned = input.replace(MD_IMG_FULL, '').replace(MD_IMG_EMPTY, '').replace(MD_IMG_BLOB, '').replace(MD_IMG_BARE, '');
 
     // Normalize broken ISO dates (remove unwanted spaces)
-    cleaned = cleaned
-        .replace(ISO_PUNCT_SPACES, '$1')
-        .replace(ISO_T_SPACE, 'T')
-        .replace(ISO_TIME_SPACE, '$1')
-        .replace(ISO_TZ_SPACE, '$1$2');
+    cleaned = cleaned.replace(ISO_PUNCT_SPACES, '$1').replace(ISO_T_SPACE, 'T').replace(ISO_TIME_SPACE, '$1').replace(ISO_TZ_SPACE, '$1$2');
 
     // Format dates: first one inline, others with double newline before
     let dateCount = 0;
@@ -50,7 +42,7 @@ export function cleanAndFormatString(input) {
             const date = new Date(match);
             if (isNaN(date.getTime())) return match;
 
-            const formatted = new Intl.DateTimeFormat('en-GB', {
+            const formatted = new Intl.DateTimeFormat('en-US', {
                 day: '2-digit',
                 month: 'short',
                 year: 'numeric',
