@@ -46,7 +46,7 @@ VITE_FIREBASE_APP_ID=<your-app-id>
 
 To use mock data instead of the live API, add:
 ```env
-VITE_USE_MOCK_DATA=true
+VITE_USE_MOCKED_DATA=true
 ```
 
 ### Start the dev server

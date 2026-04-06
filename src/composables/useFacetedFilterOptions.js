@@ -1,5 +1,5 @@
 import { computed } from 'vue';
-import { applyTicketFilters } from '@/utils/ticketFilters';
+import { applyMockedTicketFilters } from '@/utils/mockedTicketFilters';
 
 /**
  * Derives faceted multiselect options from the full ticket dataset.
@@ -8,7 +8,7 @@ import { applyTicketFilters } from '@/utils/ticketFilters';
  *
  * Performance: base-filtered dataset is computed once, then a SINGLE-PASS
  * bitmask loop collects all 7 facet sets simultaneously — replaces the
- * previous 7× applyTicketFilters calls with one O(n) iteration.
+ * previous 7× applyMockedTicketFilters calls with one O(n) iteration.
  *
  * @param {Ref<Object>} filters  - The filters ref from TableDoc
  * @param {Ref<Array>}  tickets  - fullProcessedTickets from useTicketDataStore
@@ -43,7 +43,7 @@ export function useFacetedFilterOptions(filters, tickets) {
     }));
 
     // Step 1: Apply base (non-multiselect) filters once — shared by all facets
-    const baseFiltered = computed(() => applyTicketFilters(tickets.value, baseFilterParams.value));
+    const baseFiltered = computed(() => applyMockedTicketFilters(tickets.value, baseFilterParams.value));
 
     // Step 2: Single-pass bitmask aggregation — replaces separate filter passes
     //

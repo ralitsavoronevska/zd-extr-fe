@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { useTableStore } from '@/stores/tableStore';
-import { VIP_TIERS } from '@/config/enums';
+import { VIP_TIERS } from '@/config/mockedEnums';
 
 // Precompile regex patterns — avoids recompilation per ticket
 const COMPLIANCE_OK_RE = /compliance[:\s]+ok/i;
@@ -30,7 +30,7 @@ export function useStatsAggregation() {
             complianceMissing = 0;
         const brandSet = new Set();
 
-        for (const t of tableStore.filteredTickets) {
+        for (const t of tableStore.mockedFilteredTickets) {
             const csat = t.csat_score?.toLowerCase();
             const sentiment = t.sentiment?.toLowerCase();
             const vip = t.vip_level?.toLowerCase();
@@ -56,7 +56,7 @@ export function useStatsAggregation() {
             if (!COMPLIANCE_WORD_RE.test(summary)) complianceMissing++;
         }
 
-        const totalTickets = tableStore.filteredTickets.length;
+        const totalTickets = tableStore.mockedFilteredTickets.length;
         const ratedTickets = csatGood + csatBad;
         const pctCsat = ratedTickets > 0 ? ((csatGood / ratedTickets) * 100).toFixed(1) : '0';
         const pctSentiment = totalTickets > 0 ? (((negSentiment + veryNegSentiment) / totalTickets) * 100).toFixed(1) : '0';

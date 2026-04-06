@@ -1,11 +1,14 @@
 <script setup>
-import { useVipAggregation } from '@/composables/useVipAggregation';
 import { formatDate } from '@/utils/dateUtils';
+import { useVipAggregation as useMockedVipAggregation } from '@/composables/useMockedVipAggregation';
+import { useVipAggregation as useApiVipAggregation } from '@/composables/useApiVipAggregation';
+
+const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
 
 const CSAT_HIGH_THRESHOLD = 80; // % — green
 const CSAT_MID_THRESHOLD = 50; // % — yellow; below this is red
 
-const { filteredTickets, dateRange, dates, groupedData, hasVipData } = useVipAggregation();
+const { filteredTickets, dateRange, dates, groupedData, hasVipData } = USE_MOCKED ? useMockedVipAggregation() : useApiVipAggregation();
 
 function getSegmentRowClass(segment) {
     const map = {
@@ -31,11 +34,14 @@ function getCsatClass(csat) {
 </script>
 
 <template>
-    <div v-if="filteredTickets.length > 0 && hasVipData" class="vip-table card mt-8">
+    <div v-if="hasVipData" class="vip-table card mt-8">
         <!-- Info banner – matches TableDoc pattern -->
         <div class="dt-info-card card mb-8 p-4">
-            <p class="inline-block dt-info-p rounded-xl py-2 px-3">
+            <p v-if="filteredTickets.length > 0" class="inline-block dt-info-p rounded-xl py-2 px-3">
                 Aggregated from <strong>{{ filteredTickets.length }}</strong> filtered tickets (date range: {{ dateRange.start ? formatDate(dateRange.start) : '—' }} to {{ dateRange.end ? formatDate(dateRange.end) : '—' }})
+            </p>
+            <p v-else class="inline-block dt-info-p rounded-xl py-2 px-3">
+                VIP CSAT data (date range: {{ dateRange.start ? formatDate(dateRange.start) : '—' }} to {{ dateRange.end ? formatDate(dateRange.end) : '—' }})
             </p>
         </div>
 

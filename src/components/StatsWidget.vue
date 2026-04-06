@@ -1,8 +1,11 @@
 <script setup>
 import { computed } from 'vue';
-import { useStatsAggregation } from '@/composables/useStatsAggregation';
+import { useStatsAggregation as useMockedStatsAggregation } from '@/composables/useMockedStatsAggregation';
+import { useStatsAggregation as useApiStatsAggregation } from '@/composables/useApiStatsAggregation';
 
-const { aggregation } = useStatsAggregation();
+const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
+
+const { aggregation } = USE_MOCKED ? useMockedStatsAggregation() : useApiStatsAggregation();
 
 const stats = computed(() => {
     const a = aggregation.value;

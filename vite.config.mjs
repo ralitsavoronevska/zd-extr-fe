@@ -34,7 +34,7 @@ export default defineConfig({
             name: 'exclude-mock-data',
             enforce: 'pre',
             resolveId(source) {
-                if (source.includes('mock-ticket-summaries') && !this.meta.watchMode) {
+                if (source.includes('mocked-ticket-summaries') && !this.meta.watchMode) {
                     return '\0mock-empty';
                 }
             },

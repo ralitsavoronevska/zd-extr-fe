@@ -1,7 +1,7 @@
 <script setup>
-import { useTopicCharts } from '@/composables/useChartAggregations';
 import { useLayout } from '@/layout/composables/layout';
 import { onMounted, ref, watch, computed } from 'vue';
+import { useTopicCharts } from '@/composables/useChartAggregations';
 
 const { layoutConfig, isDarkTheme } = useLayout();
 

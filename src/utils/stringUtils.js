@@ -25,6 +25,12 @@ const DATE_RE = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2})/
 const SEPARATOR_RE = /\s*(?:\|+|[-–—]+|and|,\s*)\s*/gi;
 const MULTI_NEWLINES_RE = /\n{4,}/g;
 
+/** Mask an email address by replacing all characters with asterisks. */
+export function maskEmail(email) {
+    if (!email || email === 'none') return 'none';
+    return '*'.repeat(email.length);
+}
+
 export function cleanAndFormatString(input) {
     if (!input || typeof input !== 'string') return input;
 

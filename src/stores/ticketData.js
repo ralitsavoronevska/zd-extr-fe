@@ -1,10 +1,8 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { ref, shallowRef } from 'vue';
-import api from '@/services/authApi';
 import { emptyToNone } from '@/utils/normalization';
-import { getCachedTickets, setCachedTickets, isCacheStale } from '@/services/ticketCache';
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
 
 // ── Fields that get emptyToNone normalization (short categorical fields) ──
 const NORMALIZE_FIELDS = ['topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment'];
@@ -18,11 +16,12 @@ const toArray = (value) => {
     return [];
 };
 
-// ── Process a single raw ticket into the shape the table expects ──
-function processTicket(ticket) {
+// ── Process a single raw ticket into the shape the table expects (mock mode) ──
+function mockedProcessTicket(ticket) {
     const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
     const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
-    // Extract category prefix before "|" (e.g. "Deposits | Conversation with..." → "Deposits")
+    // TODO (future): The backend should provide the proper clean topic category name.
+    // Once the backend is updated, remove this topic prefix extraction.
     if (normalized.topic && normalized.topic !== 'none') {
         const idx = normalized.topic.indexOf('|');
         if (idx !== -1) normalized.topic = normalized.topic.substring(0, idx).trim();
@@ -32,8 +31,7 @@ function processTicket(ticket) {
         .sort()
         .join(', ');
 
-    // Long-text fields: store raw values — normalizeTranscript runs on-demand when displayed
-    const processed = {
+    return {
         ...ticket,
         ...normalized,
         timestamp: new Date(ticket.timestamp),
@@ -41,13 +39,30 @@ function processTicket(ticket) {
         updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
         _chatTagsString: chatTagsString
     };
+}
 
-    return processed;
+/**
+ * Normalize an API response record — applies emptyToNone to categorical fields
+ * and converts date strings to Date objects. The server does NOT normalize empty values.
+ * TODO (future): topic prefix extraction may still be needed until backend provides clean names.
+ */
+function normalizeApiRecord(ticket) {
+    const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
+    // TODO (future): Remove topic prefix extraction when backend returns clean topic names
+    if (normalized.topic && normalized.topic !== 'none') {
+        const idx = normalized.topic.indexOf('|');
+        if (idx !== -1) normalized.topic = normalized.topic.substring(0, idx).trim();
+    }
+    return {
+        ...ticket,
+        ...normalized,
+        timestamp: ticket.timestamp ? new Date(ticket.timestamp) : null,
+        started_at: ticket.started_at ? new Date(ticket.started_at) : null,
+        updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null
+    };
 }
 
 // ── Yield to the browser event loop between processing batches ──
-// scheduler.yield() (Chrome 129+) resumes immediately after yielding with high priority;
-// setTimeout fallback adds ~1ms per batch but is universally supported.
 function yieldToMain() {
     if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
         return scheduler.yield();
@@ -55,110 +70,181 @@ function yieldToMain() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// ── Process raw records in batches to keep main-thread tasks under 50ms ──
-// 30k tickets / 150 per batch = 200 batches, each ~30ms → TBT drops to near-zero.
 const PROCESS_BATCH_SIZE = 150;
 
 export const useTicketDataStore = defineStore('ticketData', () => {
-    const fullProcessedTickets = shallowRef([]);
+    // ── Shared state ──
     const isLoading = ref(false);
     const fetchError = ref(null);
 
-    // Non-reactive init tracking — scoped to this store instance
+    // ── Mock-mode state ──
+    const mockedFullProcessedTickets = shallowRef([]);
+
+    // ── API-mode state ──
+    const tickets = shallowRef([]);
+    const totalCount = ref(0);
+
+    // Non-reactive init tracking
     let isInitialized = false;
     let initPromise = null;
 
-    async function processRecords(rawData) {
+    // ════════════════════════════════════════════════════════════════════
+    //  MOCK MODE — existing client-side logic (loads all data, IDB cache)
+    // ════════════════════════════════════════════════════════════════════
+
+    async function mockedProcessRecords(rawData) {
         const result = new Array(rawData.length);
         for (let i = 0; i < rawData.length; i += PROCESS_BATCH_SIZE) {
             const end = Math.min(i + PROCESS_BATCH_SIZE, rawData.length);
             for (let j = i; j < end; j++) {
-                result[j] = processTicket(rawData[j]);
+                result[j] = mockedProcessTicket(rawData[j]);
             }
             if (end < rawData.length) {
                 await yieldToMain();
             }
         }
-        fullProcessedTickets.value = result;
+        mockedFullProcessedTickets.value = result;
     }
 
-    // ── Fetch from API, process, and store processed data in IDB ──
-    async function fetchAndCache() {
-        const response = await api.get('/api/ticket-summaries/');
+    async function mockedFetchAndCache() {
+        const { default: api } = await import('@/services/authApi');
+        const response = await api.get('/api/ticket-conversation-summaries/');
         const raw = Array.isArray(response.data) ? response.data : (response.data.results ?? []);
-        await processRecords(raw);
-        // Write processed data to IDB — subsequent loads skip processRecords entirely
-        setCachedTickets(fullProcessedTickets.value).catch((err) => console.warn('IDB write failed:', err));
+        await mockedProcessRecords(raw);
+        const { setCachedTickets } = await import('@/services/mockedTicketCache');
+        setCachedTickets(mockedFullProcessedTickets.value).catch((err) => console.warn('IDB write failed:', err));
     }
 
-    // ── Background refresh: re-fetches silently, updates reactive state when done ──
-    async function refreshInBackground() {
+    async function mockedRefreshInBackground() {
         try {
-            await fetchAndCache();
+            await mockedFetchAndCache();
         } catch (err) {
             console.warn('Background refresh failed (non-fatal):', err);
         }
     }
 
-    // ── Single fetch — runs once, result shared across all component instances ──
-    async function lazyInit() {
-        if (isInitialized) return;
-        if (initPromise) return initPromise;
-
-        initPromise = (async () => {
-            isLoading.value = true;
-            fetchError.value = null;
+    async function mockedLazyInit() {
+        isLoading.value = true;
+        fetchError.value = null;
+        try {
+            const { default: mockData } = await import('@/services/mocked-ticket-summaries.json');
+            await mockedProcessRecords(mockData);
+            isInitialized = true;
+            return;
+        } catch (err) {
+            // If mock data not available, try IDB + API fallback
             try {
-                if (USE_MOCK) {
-                    const { default: mockData } = await import('@/services/mock-ticket-summaries.json');
-                    await processRecords(mockData);
-                    isInitialized = true;
-                    return;
-                }
-
-                // ── 1. Try IDB cache first (stores processed data — no re-processing needed) ──
+                const { getCachedTickets, isCacheStale } = await import('@/services/mockedTicketCache');
                 const cached = await getCachedTickets().catch(() => null);
 
                 if (cached?.data?.length) {
-                    // Restore Date objects — IDB serializes them to strings
                     for (let i = 0; i < cached.data.length; i++) {
                         const t = cached.data[i];
                         if (t.timestamp && !(t.timestamp instanceof Date)) t.timestamp = new Date(t.timestamp);
                         if (t.started_at && !(t.started_at instanceof Date)) t.started_at = new Date(t.started_at);
                         if (t.updated_at && !(t.updated_at instanceof Date)) t.updated_at = new Date(t.updated_at);
                     }
-                    fullProcessedTickets.value = cached.data;
+                    mockedFullProcessedTickets.value = cached.data;
                     isLoading.value = false;
                     isInitialized = true;
 
                     if (isCacheStale(cached)) {
-                        // Cache is old — silently refresh in background
-                        refreshInBackground().catch((err) => console.warn('Background refresh failed:', err));
+                        mockedRefreshInBackground().catch((e) => console.warn('Background refresh failed:', e));
                     }
                     return;
                 }
 
-                // ── 2. No cache — full API fetch (first ever visit) ──
-                await fetchAndCache();
+                await mockedFetchAndCache();
                 isInitialized = true;
-            } catch (err) {
-                fetchError.value = err;
-                isInitialized = false; // allow retry on next call
-                console.error('useTicketDataStore: failed to load tickets', err);
-            } finally {
-                isLoading.value = false;
-                initPromise = null;
+            } catch (innerErr) {
+                fetchError.value = innerErr;
+                isInitialized = false;
+                console.error('useTicketDataStore: failed to load tickets (mock mode)', innerErr);
             }
-        })();
+        } finally {
+            isLoading.value = false;
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  API MODE — server-side pagination, per-request data fetching
+    // ════════════════════════════════════════════════════════════════════
+
+    async function fetchTickets(params) {
+        isLoading.value = true;
+        fetchError.value = null;
+        try {
+            const { fetchTicketList } = await import('@/services/ticketApi');
+            const data = await fetchTicketList(params);
+            const raw = Array.isArray(data) ? data : (data.results || []);
+            tickets.value = raw.map(normalizeApiRecord);
+            totalCount.value = Array.isArray(data) ? raw.length : (data.count || 0);
+        } catch (err) {
+            fetchError.value = err;
+            console.error('useTicketDataStore: fetchTickets failed', err);
+        } finally {
+            isLoading.value = false;
+        }
+    }
+
+    async function fetchTicketById(ticketId) {
+        const { fetchTicketDetail } = await import('@/services/ticketApi');
+        const data = await fetchTicketDetail(ticketId);
+        return normalizeApiRecord(data);
+    }
+
+    async function apiLazyInit() {
+        isLoading.value = true;
+        fetchError.value = null;
+        try {
+            const { buildTicketListParams, fetchTicketList } = await import('@/services/ticketApi');
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const params = buildTicketListParams({ startDate: today, endDate: new Date() }, { page: 1, rows: 5, sortField: 'timestamp', sortOrder: -1 });
+            const data = await fetchTicketList(params);
+            const raw = Array.isArray(data) ? data : (data.results || []);
+            tickets.value = raw.map(normalizeApiRecord);
+            totalCount.value = Array.isArray(data) ? raw.length : (data.count || 0);
+            isInitialized = true;
+        } catch (err) {
+            fetchError.value = err;
+            isInitialized = false;
+            console.error('useTicketDataStore: apiLazyInit failed', err);
+        } finally {
+            isLoading.value = false;
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  SHARED — lazyInit dispatches to the correct mode
+    // ════════════════════════════════════════════════════════════════════
+
+    async function lazyInit() {
+        if (isInitialized) return;
+        if (initPromise) return initPromise;
+
+        initPromise = (USE_MOCKED ? mockedLazyInit() : apiLazyInit()).finally(() => {
+            initPromise = null;
+        });
 
         return initPromise;
     }
 
     return {
-        fullProcessedTickets,
+        // Shared
         isLoading,
         fetchError,
-        lazyInit
+        lazyInit,
+
+        // Mock mode
+        mockedFullProcessedTickets,
+
+        // API mode
+        tickets,
+        totalCount,
+        fetchTickets,
+        fetchTicketById
     };
 });
 

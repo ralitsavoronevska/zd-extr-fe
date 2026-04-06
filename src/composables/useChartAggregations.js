@@ -1,14 +1,19 @@
 import { useTableStore } from '@/stores/tableStore';
 import { computed } from 'vue';
 
+const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
+
+/**
+ * Derives Chart.js-ready datasets from topic stats.
+ * Mock mode: reads from tableStore.mockedTopicStats (client-side aggregation).
+ * API mode: reads from tableStore.topicChartData (server response from /api/topic-chart-data/).
+ */
 export function useTopicCharts() {
     const store = useTableStore();
 
-    const topStats = computed(() => store.topicStats);
-
-    // Single computed derives all chart arrays in one pass instead of four separate .map() calls
     const chartArrays = computed(() => {
-        const top = topStats.value;
+        const top = USE_MOCKED ? store.mockedTopicStats : (store.topicChartData?.topics ?? []);
+
         const labels = new Array(top.length);
         const totals = new Array(top.length);
         const negatives = new Array(top.length);
@@ -19,7 +24,8 @@ export function useTopicCharts() {
             labels[i] = s.topic;
             totals[i] = s.total;
             negatives[i] = s.negative;
-            percents[i] = s.percentNegative.toFixed(1);
+            // Mock uses percentNegative (camelCase), API uses percent_negative (snake_case)
+            percents[i] = (s.percentNegative ?? s.percent_negative ?? 0).toFixed(1);
         }
 
         return { labels, totals, negatives, percents };
@@ -29,13 +35,6 @@ export function useTopicCharts() {
         labels: chartArrays.value.labels,
         datasets: [
             { label: 'Total Chats', backgroundColor: '#3b82f6', data: chartArrays.value.totals },
-            { label: 'Negative Chats', backgroundColor: '#f47214', data: chartArrays.value.negatives }
-        ]
-    }));
-
-    const barDataNegativeOnly = computed(() => ({
-        labels: chartArrays.value.labels,
-        datasets: [
             { label: 'Negative Chats', backgroundColor: '#f47214', data: chartArrays.value.negatives }
         ]
     }));
@@ -56,10 +55,5 @@ export function useTopicCharts() {
 
     const hasChartData = computed(() => chartArrays.value.labels.length > 0);
 
-    return {
-        barDataTotalNegative,
-        barDataNegativeOnly,
-        lineDataPercent,
-        hasChartData
-    };
+    return { barDataTotalNegative, lineDataPercent, hasChartData };
 }

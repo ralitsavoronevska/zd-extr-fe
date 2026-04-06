@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { useTableStore } from '@/stores/tableStore';
-import { VIP_SEGMENT_ORDER as SEGMENT_ORDER } from '@/config/enums';
+import { VIP_SEGMENT_ORDER as SEGMENT_ORDER } from '@/config/mockedEnums';
 
 /**
  * Aggregates filtered tickets into a per-VIP-segment, per-date CSAT table.
@@ -9,7 +9,7 @@ import { VIP_SEGMENT_ORDER as SEGMENT_ORDER } from '@/config/enums';
 export function useVipAggregation() {
     const tableStore = useTableStore();
 
-    const filteredTickets = computed(() => tableStore.filteredTickets || []);
+    const filteredTickets = computed(() => tableStore.mockedFilteredTickets || []);
 
     const dateRange = computed(() => {
         if (!filteredTickets.value.length) return { start: null, end: null };

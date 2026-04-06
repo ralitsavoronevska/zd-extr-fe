@@ -1,36 +1,18 @@
 <script setup>
-import { FilterMatchMode, FilterOperator, FilterService } from '@primevue/core/api';
-import { storeToRefs } from 'pinia';
-import { computed, onMounted, ref, watch } from 'vue';
+import { FilterService } from '@primevue/core/api';
+import { ref } from 'vue';
 
-import { useTicketDataStore } from '@/stores/ticketData';
-import { useFacetedFilterOptions } from '@/composables/useFacetedFilterOptions';
-import { useCSVExport } from '@/composables/useCSVExport';
-import { cleanAndFormatString } from '@/utils/stringUtils';
-import { applyTicketFilters } from '@/utils/ticketFilters';
 import { formatDate } from '@/utils/dateUtils';
+import TranscriptDialog from '@/components/TranscriptDialog.vue';
+import ExportDialog from '@/components/ExportDialog.vue';
+import { useTicketFilters, PAGE_SIZE_OPTIONS } from '@/composables/useTicketFilters';
+import { useTranscriptDialog } from '@/composables/useTranscriptDialog';
+import { useTicketTableData } from '@/composables/useTicketTableData';
 
-import { useTableStore } from '@/stores/tableStore';
+const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
+const exportDialogVisible = ref(false);
 
-import { useAuthStore } from '@/stores/auth';
-
-const authStore = useAuthStore();
-
-const isAdmin = computed(() => authStore.hasRole('admin'));
-
-const maskEmail = (email) => {
-    if (!email || email === 'none') return 'none';
-    return '*'.repeat(email.length);
-};
-
-const PAGE_SIZE_DEFAULT = 5;
-const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
-
-const tableStore = useTableStore();
-
-// ────────────────────────────────────────────────
-// Custom filter for MultiSelect (contains any)
-// ────────────────────────────────────────────────
+// Custom filter for MultiSelect (mock mode only, harmless in API mode)
 FilterService.register('containsAny', (value, filter) => {
     if (!filter?.length) return true;
     if (!value) return false;
@@ -38,268 +20,38 @@ FilterService.register('containsAny', (value, filter) => {
     return filter.some((selected) => anyInRow.includes(selected));
 });
 
-// ────────────────────────────────────────────────
-// Composables & full data
-// ────────────────────────────────────────────────
-const ticketDataStore = useTicketDataStore();
-const { fullProcessedTickets, isLoading } = storeToRefs(ticketDataStore);
-
-onMounted(() => ticketDataStore.lazyInit());
-
-// ────────────────────────────────────────────────
-// State
-// ────────────────────────────────────────────────
 const dataTable = ref(null);
 
-// Default "Today" date range
-const todayStart = () => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-};
-const tomorrowStart = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    d.setHours(0, 0, 0, 0);
-    return d;
-};
+// ── Composables ──
+const filterState = useTicketFilters();
+const { filters, lazyParams, activeQuickFilter, fromDate, toDate, startedAtFrom, startedAtTo, updatedAtFrom, updatedAtTo } = filterState;
 
-// Factory – called once for init, again on clearFilter to get a fresh object
-const createInitialFilters = () => ({
-    global: { value: null, matchMode: FilterMatchMode.CONTAINS },
-    timestamp: {
-        operator: FilterOperator.AND,
-        constraints: [
-            { value: todayStart(), matchMode: FilterMatchMode.DATE_AFTER },
-            { value: tomorrowStart(), matchMode: FilterMatchMode.DATE_BEFORE }
-        ]
-    },
-    started_at: {
-        operator: FilterOperator.AND,
-        constraints: [
-            { value: null, matchMode: FilterMatchMode.DATE_AFTER },
-            { value: null, matchMode: FilterMatchMode.DATE_BEFORE }
-        ]
-    },
-    updated_at: {
-        operator: FilterOperator.AND,
-        constraints: [
-            { value: null, matchMode: FilterMatchMode.DATE_AFTER },
-            { value: null, matchMode: FilterMatchMode.DATE_BEFORE }
-        ]
-    },
-    ticketid: { value: null, matchMode: FilterMatchMode.EQUALS },
-    topic: { value: [], matchMode: 'containsAny' },
-    brand: { value: [], matchMode: 'containsAny' },
-    vip_level: { value: [], matchMode: 'containsAny' },
-    customer_email: { value: [], matchMode: 'containsAny' },
-    agent_email: { value: [], matchMode: 'containsAny' },
-    csat_score: { value: null, matchMode: FilterMatchMode.EQUALS },
-    _chatTagsString: { value: [], matchMode: 'containsAny' },
-    chat_transcript: { value: null, matchMode: FilterMatchMode.CONTAINS },
-    email_transcript: { value: null, matchMode: FilterMatchMode.CONTAINS },
-    sentiment: { value: null, matchMode: FilterMatchMode.EQUALS },
-    sentiment_reason: { value: null, matchMode: FilterMatchMode.CONTAINS },
-    summary: { value: null, matchMode: FilterMatchMode.CONTAINS }
-});
+const dateColumns = [
+    { header: 'Started At', field: 'started_at', from: startedAtFrom, to: startedAtTo },
+    { header: 'Updated At', field: 'updated_at', from: updatedAtFrom, to: updatedAtTo }
+];
 
-const filters = ref(createInitialFilters());
+const transcriptColumns = [
+    { header: 'Chat Transcript', field: 'chat_transcript', hasField: 'has_chat_transcript', dialogType: 'Chat', minWidth: '12rem' },
+    { header: 'Email Transcript', field: 'email_transcript', hasField: 'has_email_transcript', dialogType: 'Email', minWidth: '13rem' }
+];
 
-// Pagination state
-const lazyParams = ref({
-    page: 1,
-    limit: PAGE_SIZE_DEFAULT
-});
+const { dialog, openDialog } = useTranscriptDialog();
 
-// Quick date filter active state
-const activeQuickFilter = ref('today');
+const {
+    isLoading, isAdmin, maskEmail,
+    tableData, totalRecords,
+    availableTopics, availableBrands, availableVipLevels,
+    availableCustomerEmails, availableAgentEmails, availableChatTags,
+    availableSentiments, availableCsatScores,
+    exportToCSV, onPage, onSort, onFilter,
+    setQuickDateFilter, clearFilter
+} = useTicketTableData(filterState, dataTable);
 
-// Dialog state for transcript viewing
-const dialog = ref({ visible: false, type: '', transcript: '', date: null });
-
-const openDialog = (type, transcript, timestamp) => {
-    dialog.value = {
-        visible: true,
-        type,
-        transcript: cleanAndFormatString(transcript) || transcript,
-        date: timestamp
-    };
-};
-
-// ────────────────────────────────────────────────
-// Filtered & paginated data (computed – full dataset filtering)
-// ────────────────────────────────────────────────
-const filteredTickets = computed(() =>
-    applyTicketFilters(fullProcessedTickets.value, {
-        globalFilter: filters.value.global?.value || '',
-        ticketid: filters.value.ticketid?.value,
-        brand: filters.value.brand?.value ?? [],
-        topic: filters.value.topic?.value ?? [],
-        vip_level: filters.value.vip_level?.value ?? [],
-        customer_email: filters.value.customer_email?.value ?? [],
-        agent_email: filters.value.agent_email?.value ?? [],
-        _chatTagsString: filters.value._chatTagsString?.value ?? [],
-        csat_score: filters.value.csat_score?.value,
-        sentiment: filters.value.sentiment?.value,
-        sentiment_reason: filters.value.sentiment_reason?.value,
-        chat_transcript: filters.value.chat_transcript?.value,
-        email_transcript: filters.value.email_transcript?.value,
-        summary: filters.value.summary?.value,
-        startDate: filters.value.timestamp?.constraints?.[0]?.value,
-        endDate: filters.value.timestamp?.constraints?.[1]?.value,
-        startedAtStart: filters.value.started_at?.constraints?.[0]?.value,
-        startedAtEnd: filters.value.started_at?.constraints?.[1]?.value,
-        updatedAtStart: filters.value.updated_at?.constraints?.[0]?.value,
-        updatedAtEnd: filters.value.updated_at?.constraints?.[1]?.value
-    })
-);
-
-// ────────────────────────────────────────────────
-// Faceted multiselect options
-// ────────────────────────────────────────────────
-const { availableTopics, availableBrands, availableVipLevels, availableCustomerEmails, availableAgentEmails, availableChatTags, availableSentiments, availableCsatScores } = useFacetedFilterOptions(filters, fullProcessedTickets);
-
-const paginatedTickets = computed(() => {
-    const start = (lazyParams.value.page - 1) * lazyParams.value.limit;
-    return filteredTickets.value.slice(start, start + lazyParams.value.limit);
-});
-
-const totalRecords = computed(() => filteredTickets.value.length);
-
-// ────────────────────────────────────────────────
-// Watchers
-// ────────────────────────────────────────────────
-
-// Sync filtered data to Pinia store (for VipTable & Charts) and reset page
-// Replaces deep watch on filters — filteredTickets is a computed that already
-// reacts to all filter changes, so no deep traversal or debounce needed.
-watch(
-    filteredTickets,
-    (newFiltered) => {
-        tableStore.setFilteredTickets(newFiltered);
-        lazyParams.value.page = 1;
-    },
-    { immediate: true }
-);
-
-// ────────────────────────────────────────────────
-// Export & format
-// ────────────────────────────────────────────────
-const { exportToCSV } = useCSVExport(dataTable, filteredTickets, formatDate);
-
-// ────────────────────────────────────────────────
-// Event handlers
-// ────────────────────────────────────────────────
-
-/**
- * Handle pagination changes from DataTable.
- * @param {Object} event - Pagination event with page and rows info
- */
-function onPage(event) {
-    if (lazyParams.value) {
-        lazyParams.value.page = event?.page ? event.page + 1 : 1;
-        lazyParams.value.limit = event?.rows || 5;
-    }
-}
-
-/**
- * Handle filter changes - reset pagination to page 1.
- */
-function onFilter() {
-    if (lazyParams.value) {
-        lazyParams.value.page = 1;
-    }
-}
-
-/**
- * Apply quick date filter presets (Today, Last 7 Days, Last 30 Days).
- * @param {string} period - Period key: 'today', 'week', or 'month'
- */
-const setQuickDateFilter = (period) => {
-    // Toggle off if clicking the already-active filter
-    if (activeQuickFilter.value === period) {
-        activeQuickFilter.value = null;
-        if (filters.value?.timestamp?.constraints) {
-            filters.value.timestamp.constraints[0].value = null;
-            filters.value.timestamp.constraints[1].value = null;
-        }
-        return;
-    }
-
-    activeQuickFilter.value = period;
-    const start = new Date();
-    const end = new Date();
-    end.setDate(end.getDate() + 1);
-    end.setHours(0, 0, 0, 0);
-
-    if (period === 'today') start.setHours(0, 0, 0, 0);
-    else if (period === 'week') (start.setDate(start.getDate() - 7), start.setHours(0, 0, 0, 0));
-    else if (period === 'month') (start.setMonth(start.getMonth() - 1), start.setHours(0, 0, 0, 0));
-    else if (period === '2 months') (start.setMonth(start.getMonth() - 2), start.setHours(0, 0, 0, 0));
-    else if (period === '3 months') (start.setMonth(start.getMonth() - 3), start.setHours(0, 0, 0, 0));
-
-    // Safely set date constraints
-    if (filters.value?.timestamp?.constraints) {
-        filters.value.timestamp.constraints[0].value = start;
-        filters.value.timestamp.constraints[1].value = end;
-    }
-
-    if (lazyParams.value) {
-        lazyParams.value.page = 1;
-    }
-};
-
-const fromDate = computed({
-    get: () => filters.value.timestamp?.constraints?.[0]?.value ?? null,
-    set: (val) => {
-        if (filters.value.timestamp?.constraints?.[0]) filters.value.timestamp.constraints[0].value = val;
-    }
-});
-
-const toDate = computed({
-    get: () => filters.value.timestamp?.constraints?.[1]?.value ?? null,
-    set: (val) => {
-        if (filters.value.timestamp?.constraints?.[1]) filters.value.timestamp.constraints[1].value = val;
-    }
-});
-
-const startedAtFrom = computed({
-    get: () => filters.value.started_at?.constraints?.[0]?.value ?? null,
-    set: (val) => {
-        if (filters.value.started_at?.constraints?.[0]) filters.value.started_at.constraints[0].value = val;
-    }
-});
-
-const startedAtTo = computed({
-    get: () => filters.value.started_at?.constraints?.[1]?.value ?? null,
-    set: (val) => {
-        if (filters.value.started_at?.constraints?.[1]) filters.value.started_at.constraints[1].value = val;
-    }
-});
-
-const updatedAtFrom = computed({
-    get: () => filters.value.updated_at?.constraints?.[0]?.value ?? null,
-    set: (val) => {
-        if (filters.value.updated_at?.constraints?.[0]) filters.value.updated_at.constraints[0].value = val;
-    }
-});
-
-const updatedAtTo = computed({
-    get: () => filters.value.updated_at?.constraints?.[1]?.value ?? null,
-    set: (val) => {
-        if (filters.value.updated_at?.constraints?.[1]) filters.value.updated_at.constraints[1].value = val;
-    }
-});
-
-function clearFilter() {
-    filters.value = createInitialFilters();
-    // Reset date constraints to null (createInitialFilters defaults to "today")
-    filters.value.timestamp.constraints[0].value = null;
-    filters.value.timestamp.constraints[1].value = null;
-    activeQuickFilter.value = null;
-    lazyParams.value.page = 1;
-    lazyParams.value.limit = PAGE_SIZE_DEFAULT;
-}
+const emailColumns = [
+    { header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails, masked: true },
+    { header: 'Agent Email', field: 'agent_email', options: availableAgentEmails, masked: false }
+];
 </script>
 
 <template>
@@ -307,7 +59,7 @@ function clearFilter() {
         <!-- Info card -->
         <div class="dt-info-card card mb-8 p-4!">
             <p class="inline-block dt-info-p rounded-xl py-2 px-3 m-0!" v-if="totalRecords > 0">
-                Showing <strong>{{ totalRecords }}</strong> filtered {{ totalRecords.length > 1 ? 'tickets' : 'ticket' }}.
+                Showing <strong>{{ totalRecords }}</strong> filtered {{ totalRecords > 1 ? 'tickets' : 'ticket' }}.
             </p>
             <p class="inline-block dt-info-p rounded-xl py-2 px-3 m-0!" v-else>No tickets found.</p>
             <p class="inline-block p-tag-info rounded-xl py-2 px-3 mb-0! mt-2! lg:ml-2! lg:mt-0!" v-if="totalRecords > 0">
@@ -317,7 +69,7 @@ function clearFilter() {
 
         <DataTable
             ref="dataTable"
-            :value="paginatedTickets"
+            :value="tableData"
             :lazy="true"
             :totalRecords="totalRecords"
             :rows="lazyParams.limit"
@@ -333,6 +85,7 @@ function clearFilter() {
             responsiveLayout="scroll"
             showGridlines
             @page="onPage"
+            @sort="onSort"
             @filter="onFilter"
         >
             <!-- Header with quick filters, clear, export, global search -->
@@ -349,7 +102,8 @@ function clearFilter() {
                             <Button :class="`dt-period-filters ${activeQuickFilter === '3 months' ? 'dt-period-active' : ''}`" label="Last 3 Months" outlined size="small" @click="setQuickDateFilter('3 months')" aria-label="Filter by last 3 months" />
                         </div>
                     </div>
-                    <Button type="button" icon="pi pi-download" label="Export to CSV" outlined @click="exportToCSV()" aria-label="Export filtered results to CSV" />
+                    <Button v-if="USE_MOCKED" type="button" icon="pi pi-download" label="Export to CSV" outlined @click="exportToCSV()" aria-label="Export filtered results to CSV" />
+                    <Button v-else type="button" icon="pi pi-download" label="Export to CSV" outlined @click="exportDialogVisible = true" aria-label="Open export dialog" />
                     <IconField>
                         <InputIcon>
                             <i class="pi pi-search" />
@@ -374,26 +128,14 @@ function clearFilter() {
                 </template>
             </Column>
 
-            <Column header="Started At" filterField="started_at" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 15rem">
+            <Column v-for="col in dateColumns" :key="col.field" :header="col.header" :filterField="col.field" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 15rem">
                 <template #body="{ data }">
-                    {{ data.started_at ? formatDate(data.started_at, 'en-US', true) : '—' }}
+                    {{ data[col.field] ? formatDate(data[col.field], 'en-US', true) : '—' }}
                 </template>
                 <template #filter>
                     <div class="flex flex-col sm:flex-row gap-2 p-2">
-                        <DatePicker v-model="startedAtFrom" placeholder="From (≥)" dateFormat="mm/dd/yy" showIcon />
-                        <DatePicker v-model="startedAtTo" placeholder="To (<)" dateFormat="mm/dd/yy" showIcon />
-                    </div>
-                </template>
-            </Column>
-
-            <Column header="Updated At" filterField="updated_at" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 15rem">
-                <template #body="{ data }">
-                    {{ data.updated_at ? formatDate(data.updated_at, 'en-US', true) : '—' }}
-                </template>
-                <template #filter>
-                    <div class="flex flex-col sm:flex-row gap-2 p-2">
-                        <DatePicker v-model="updatedAtFrom" placeholder="From (≥)" dateFormat="mm/dd/yy" showIcon />
-                        <DatePicker v-model="updatedAtTo" placeholder="To (<)" dateFormat="mm/dd/yy" showIcon />
+                        <DatePicker v-model="col.from.value" placeholder="From (≥)" dateFormat="mm/dd/yy" showIcon />
+                        <DatePicker v-model="col.to.value" placeholder="To (<)" dateFormat="mm/dd/yy" showIcon />
                     </div>
                 </template>
             </Column>
@@ -440,24 +182,15 @@ function clearFilter() {
                 </template>
             </Column>
 
-            <Column header="Customer Email" filterField="customer_email" :showFilterMatchModes="false" style="min-width: 18rem">
+            <Column v-for="col in emailColumns" :key="col.field" :header="col.header" :filterField="col.field" :showFilterMatchModes="false" style="min-width: 18rem">
                 <template #body="{ data }">
-                    {{ data.customer_email === 'none' ? '—' : !isAdmin ? maskEmail(data.customer_email) : data.customer_email }}
+                    {{ data[col.field] === 'none' ? '—' : data[col.field] }}
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableCustomerEmails" placeholder="Any Customer Email" display="chip" :filter="true" showClear @change="filterCallback()">
-                        <template v-if="!isAdmin" #option="{ option }">{{ maskEmail(option) }}</template>
-                        <template v-if="!isAdmin" #chip="{ value }">{{ maskEmail(value) }}</template>
+                    <MultiSelect v-model="filterModel.value" :options="col.options" :placeholder="`Any ${col.header}`" display="chip" :filter="true" showClear @change="filterCallback()">
+                        <template v-if="col.masked && !isAdmin" #option="{ option }">{{ maskEmail(option) }}</template>
+                        <template v-if="col.masked && !isAdmin" #chip="{ value }">{{ maskEmail(value) }}</template>
                     </MultiSelect>
-                </template>
-            </Column>
-
-            <Column header="Agent Email" filterField="agent_email" :showFilterMatchModes="false" style="min-width: 18rem">
-                <template #body="{ data }">
-                    {{ data.agent_email === 'none' ? '—' : data.agent_email }}
-                </template>
-                <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableAgentEmails" placeholder="Any Agent Email" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>
 
@@ -489,23 +222,19 @@ function clearFilter() {
                 </template>
             </Column>
 
-            <Column header="Chat Transcript" field="chat_transcript" filterField="chat_transcript" style="min-width: 12rem">
+            <Column v-for="col in transcriptColumns" :key="col.field" :header="col.header" :field="col.field" :filterField="col.field" :style="{ minWidth: col.minWidth }">
                 <template #body="{ data }">
-                    <Button v-if="data.chat_transcript" label="View" icon="pi pi-external-link" @click="openDialog('Chat', data.chat_transcript, data.timestamp)" size="small" severity="info" rounded aria-label="View chat transcript" />
-                    <span v-else>—</span>
+                    <template v-if="USE_MOCKED">
+                        <Button v-if="data[col.field]" label="View" icon="pi pi-external-link" @click="openDialog(col.dialogType, data[col.field], data.timestamp)" size="small" severity="info" rounded :aria-label="`View ${col.header.toLowerCase()}`" />
+                        <span v-else>—</span>
+                    </template>
+                    <template v-else>
+                        <Button v-if="data[col.hasField]" label="View" icon="pi pi-external-link" @click="openDialog(col.dialogType, data.ticketid, data.timestamp)" size="small" severity="info" rounded :aria-label="`View ${col.header.toLowerCase()}`" />
+                        <span v-else>—</span>
+                    </template>
                 </template>
                 <template #filter="{ filterModel }">
-                    <InputText v-model="filterModel.value" type="text" placeholder="Filter by Chat Transcript" />
-                </template>
-            </Column>
-
-            <Column header="Email Transcript" field="email_transcript" filterField="email_transcript" style="min-width: 13rem">
-                <template #body="{ data }">
-                    <Button v-if="data.email_transcript" label="View" icon="pi pi-external-link" @click="openDialog('Email', data.email_transcript, data.timestamp)" size="small" severity="info" rounded aria-label="View email transcript" />
-                    <span v-else>—</span>
-                </template>
-                <template #filter="{ filterModel }">
-                    <InputText v-model="filterModel.value" type="text" placeholder="Filter by Email Transcript" />
+                    <InputText v-model="filterModel.value" type="text" :placeholder="`Filter by ${col.header}`" />
                 </template>
             </Column>
 
@@ -541,26 +270,8 @@ function clearFilter() {
             </Column>
         </DataTable>
 
-        <!-- Transcript Dialog (chat & email) -->
-        <Dialog
-            v-model:visible="dialog.visible"
-            :header="`${dialog.type} Transcript - ${formatDate(dialog.date)}`"
-            :style="{ width: '75vw' }"
-            maximizable
-            modal
-            :contentStyle="{ maxHeight: '400px', overflowY: 'auto' }"
-            :aria-label="`${dialog.type} transcript viewer`"
-        >
-            <div class="space-y-3">
-                <div class="text-xs text-gray-500 dark:text-gray-400 px-4 pt-2 font-semibold tracking-wide">Ticket Date: {{ formatDate(dialog.date) }}</div>
-                <div class="whitespace-pre-wrap break-words text-sm p-4 bg-surface-50 dark:bg-surface-950 rounded font-mono">
-                    {{ cleanAndFormatString(dialog.transcript) }}
-                </div>
-            </div>
-            <template #footer>
-                <Button label="Close" icon="pi pi-check" @click="dialog.visible = false" :aria-label="`Close ${dialog.type.toLowerCase()} transcript dialog`" />
-            </template>
-        </Dialog>
+        <TranscriptDialog v-model="dialog" />
+        <ExportDialog v-if="!USE_MOCKED" v-model:visible="exportDialogVisible" />
     </div>
 </template>
 

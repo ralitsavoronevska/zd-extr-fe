@@ -1,7 +1,7 @@
 /**
  * Applies all ticket filter criteria to a dataset.
- * Single source of truth used by both TableDoc (client-side computed)
- * and TicketService (mock data pagination).
+ * Mock-mode only: used by TableDoc (client-side computed)
+ * and mockedTicketService (mock data pagination).
  *
  * Performance: single-pass loop with early-exit `continue` — no intermediate
  * arrays. Filter values are pre-computed outside the loop so each iteration
@@ -11,7 +11,7 @@
  * @param {Object} params - Flat filter params (all optional, safe to omit)
  * @returns {Array} New filtered array (original is not mutated)
  */
-export function applyTicketFilters(data, params = {}) {
+export function applyMockedTicketFilters(data, params = {}) {
     const {
         globalFilter = '',
         ticketid = null,
@@ -62,10 +62,10 @@ export function applyTicketFilters(data, params = {}) {
     for (let i = 0; i < data.length; i++) {
         const item = data[i];
 
-        // Global search — build _searchIndex lazily on first global filter use
+        // Global search — build _mockedSearchIndex lazily on first global filter use
         if (globalLower) {
-            if (!item._searchIndex) {
-                item._searchIndex = [
+            if (!item._mockedSearchIndex) {
+                item._mockedSearchIndex = [
                     String(item.ticketid || ''),
                     item.topic || '',
                     item.brand || '',
@@ -83,7 +83,7 @@ export function applyTicketFilters(data, params = {}) {
                     .join('\0')
                     .toLowerCase();
             }
-            if (!item._searchIndex.includes(globalLower)) continue;
+            if (!item._mockedSearchIndex.includes(globalLower)) continue;
         }
 
         // Ticket ID — exact match
