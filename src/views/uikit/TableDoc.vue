@@ -60,8 +60,8 @@ const {
 } = useTicketTableData(filterState, dataTable);
 
 const emailColumns = computed(() => [
-    { header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails, filterable: isAdmin.value },
-    { header: 'Agent Email', field: 'agent_email', options: availableAgentEmails, filterable: true }
+    { header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails?.value ?? [], filterable: isAdmin.value },
+    { header: 'Agent Email', field: 'agent_email', options: availableAgentEmails?.value ?? [], filterable: true }
 ]);
 </script>
 
