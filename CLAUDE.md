@@ -9,7 +9,7 @@
 - VIP customer tracking table
 - CSV export with size warnings
 - Firebase email/password authentication with Firestore RBAC (role-based access control)
-- Role-based UI (e.g. email masking for non-admin users)
+- Role-based UI (e.g. customer email column hidden for non-admin users)
 - Dark/light mode toggle (persisted to localStorage)
 - Deployed to GitHub Pages at `/zd-extr-fe/`
 
@@ -88,7 +88,7 @@ src/
 ├── utils/
 │   ├── mockedTicketFilters.js         # Mock-mode: applyMockedTicketFilters() — single-pass filter loop
 │   ├── normalization.js               # emptyToNone(), normalizeTranscript()
-│   ├── stringUtils.js                 # cleanAndFormatString(), formatDate()
+│   ├── stringUtils.js                 # cleanAndFormatString()
 │   └── dateUtils.js                   # formatDate() helper
 ├── config/
 │   └── mockedEnums.js                 # VIP_TIERS, VIP_SEGMENT_ORDER, CSAT_OPTIONS, SENTIMENT_OPTIONS, NEGATIVE_SENTIMENTS
@@ -129,19 +129,19 @@ All endpoints use the same common filter params: `timestamp_gte`, `timestamp_lt`
 
 Param builders in `src/services/ticketApi.js`: `buildTicketListParams()`, `buildFilterOptionsParams()`, `buildStatsParams()`, `buildTopicChartParams()`, `buildVipCsatParams()`, `buildExportParams()`. Each builder sends only the params its endpoint accepts — e.g. `buildVipCsatParams` only sends `timestamp_gte/lt` + `vip_level` + `csat_score`; `buildTopicChartParams` adds `brand`, `topic`, `sentiment` on top of that but omits `agent_email`/`customer_email`/`chat_tags`.
 
-### Backend requirement: server-side customer email masking (SECURITY)
+### Customer email visibility (role-based)
 
-**Current state (insecure):** The frontend masks `customer_email` in the UI for non-admin users (`useTicketTableData.js` + `maskEmail()` in `stringUtils.js`). `maskEmail` uses a fixed-width placeholder (`****@domain.com`) that does not reveal the original email length. However, raw unmasked emails are still visible in API responses (Network tab), Pinia state (Vue DevTools), and the browser console. This is cosmetic masking only — not a security boundary.
+**Current frontend behavior:** The `customer_email` column in `TableDoc.vue` is completely hidden for non-admin users. The `emailColumns` computed in `TableDoc.vue` only includes the column when `isAdmin` is true. Non-admins see only the Agent Email column — no masking, no placeholder, no column at all.
 
-**Required backend behavior:** All endpoints that return or accept `customer_email` must enforce role-based masking server-side. The backend should inspect the authenticated user's role and:
+**Remaining security concern:** Raw `customer_email` values are still present in API responses (Network tab), Pinia state (Vue DevTools), and the browser console. The frontend column hiding is a UI convenience, not a security boundary.
 
-1. **Ticket list** (`/api/ticket-conversation-summaries/`) — return masked `customer_email` (e.g. `c*****@example.com`) for non-admin users
-2. **Ticket detail** (`/api/ticket-summaries/{ticketid}/`) — same masking
-3. **Filter options** (`/api/ticket-filter-options/`) — either omit the `customer_email` array entirely for non-admins, or return masked values. If masked values are returned, the backend must accept those masked values as filter params and match them against real emails internally
-4. **CSV export** (`/api/ticket-summaries/export/`) — export masked emails for non-admins
+**Required backend behavior:** For true security, the backend should enforce role-based access to `customer_email` server-side:
+
+1. **Ticket list** (`/api/ticket-conversation-summaries/`) — omit or mask `customer_email` for non-admin users
+2. **Ticket detail** (`/api/ticket-summaries/{ticketid}/`) — same
+3. **Filter options** (`/api/ticket-filter-options/`) — omit the `customer_email` array for non-admins
+4. **CSV export** (`/api/ticket-summaries/export/`) — omit or mask customer emails for non-admins
 5. **Stats/chart/VIP endpoints** — do not expose `customer_email`, so no change needed
-
-Once the backend implements this, the frontend's client-side masking (`maskEmail` in `useTicketTableData.js`) becomes redundant and can be removed. Until then, it remains as a UI courtesy — not a security control.
 
 ---
 

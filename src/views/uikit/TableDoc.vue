@@ -1,6 +1,6 @@
 <script setup>
 import { FilterService } from '@primevue/core/api';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 import { formatDate } from '@/utils/dateUtils';
 import TranscriptDialog from '@/components/TranscriptDialog.vue';
@@ -41,7 +41,6 @@ const { dialog, openDialog } = useTranscriptDialog();
 const {
     isLoading,
     isAdmin,
-    maskEmail,
     tableData,
     totalRecords,
     availableTopics,
@@ -60,10 +59,11 @@ const {
     clearFilter
 } = useTicketTableData(filterState, dataTable);
 
-const emailColumns = [
-    { header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails, masked: true },
-    { header: 'Agent Email', field: 'agent_email', options: availableAgentEmails, masked: false }
-];
+const emailColumns = computed(() => {
+    const cols = [{ header: 'Agent Email', field: 'agent_email', options: availableAgentEmails }];
+    if (isAdmin.value) cols.unshift({ header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails });
+    return cols;
+});
 </script>
 
 <template>
@@ -201,10 +201,7 @@ const emailColumns = [
                     {{ data[col.field] === 'none' ? '—' : data[col.field] }}
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="col.options" :placeholder="`Any ${col.header}`" display="chip" :filter="true" showClear @change="filterCallback()">
-                        <template v-if="col.masked && !isAdmin" #option="{ option }">{{ maskEmail(option) }}</template>
-                        <template v-if="col.masked && !isAdmin" #chip="{ value }">{{ maskEmail(value) }}</template>
-                    </MultiSelect>
+                    <MultiSelect v-model="filterModel.value" :options="col.options" :placeholder="`Any ${col.header}`" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>
 
