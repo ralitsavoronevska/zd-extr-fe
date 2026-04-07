@@ -93,7 +93,9 @@ const emailColumns = [
             :paginatorPosition="'both'"
             v-model:filters="filters"
             filterDisplay="menu"
-            :globalFilterFields="['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', '_chatTagsString', 'chat_transcript', 'email_transcript', 'sentiment', 'sentiment_reason', 'summary']"
+            :globalFilterFields="USE_MOCKED
+                ? ['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', '_chatTagsString', 'chat_transcript', 'email_transcript', 'sentiment', 'sentiment_reason', 'summary']
+                : ['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment', 'sentiment_reason', 'summary']"
             responsiveLayout="scroll"
             showGridlines
             @page="onPage"

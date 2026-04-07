@@ -24,8 +24,7 @@ export function useTopicCharts() {
             labels[i] = s.topic;
             totals[i] = s.total;
             negatives[i] = s.negative;
-            // Mock uses percentNegative (camelCase), API uses percent_negative (snake_case)
-            percents[i] = (s.percentNegative ?? s.percent_negative ?? 0).toFixed(1);
+            percents[i] = (s.percent_negative ?? 0).toFixed(1);
         }
 
         return { labels, totals, negatives, percents };

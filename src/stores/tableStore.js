@@ -34,7 +34,7 @@ export const useTableStore = defineStore('table', () => {
                 topic,
                 total: counts.total,
                 negative: counts.negative,
-                percentNegative: counts.total > 0 ? (counts.negative / counts.total) * 100 : 0
+                percent_negative: counts.total > 0 ? (counts.negative / counts.total) * 100 : 0
             }))
             .sort((a, b) => b.total - a.total);
     });

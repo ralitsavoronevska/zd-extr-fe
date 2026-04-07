@@ -94,9 +94,6 @@ export function buildTicketListParams(filters = {}, lazyParams = {}) {
     // Sentiment reason (text, not boolean)
     if (filters.sentiment_reason) params.sentiment_reason = filters.sentiment_reason;
 
-    // Ticket ID exact match
-    if (filters.ticketid) params.ticketid = filters.ticketid;
-
     return params;
 }
 
@@ -165,26 +162,26 @@ export function buildVipCsatParams(filters = {}) {
 
 /**
  * GET /api/ticket-summaries/export/
- * Same filters as the list endpoint, but no pagination.
+ * Timestamp + brand, topic, vip_level, csat_score, sentiment only.
+ * Does NOT accept: started_at/updated_at, agent_email, customer_email,
+ * chat_tags, search, ticketid, sentiment_reason, or text-contains params.
  */
 export function buildExportParams(filters = {}) {
     const params = {};
 
     addTimestampParams(params, filters);
-    addExtendedDateParams(params, filters);
-    addAllAttributeFilters(params, filters);
 
-    // Global search
-    if (filters.globalFilter) params.search = filters.globalFilter;
+    const brand = joinMulti(filters.brand);
+    if (brand) params.brand = brand;
 
-    // Text-contains as booleans
-    addBooleanContainsFilters(params, filters);
+    const topic = joinMulti(filters.topic);
+    if (topic) params.topic = topic;
 
-    // Sentiment reason (text, not boolean)
-    if (filters.sentiment_reason) params.sentiment_reason = filters.sentiment_reason;
+    const vipLevel = joinMulti(filters.vip_level);
+    if (vipLevel) params.vip_level = vipLevel;
 
-    // Ticket ID exact match
-    if (filters.ticketid) params.ticketid = filters.ticketid;
+    if (filters.csat_score) params.csat_score = filters.csat_score;
+    if (filters.sentiment) params.sentiment = filters.sentiment;
 
     return params;
 }

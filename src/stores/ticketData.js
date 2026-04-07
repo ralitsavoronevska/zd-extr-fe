@@ -171,9 +171,8 @@ export const useTicketDataStore = defineStore('ticketData', () => {
         try {
             const { fetchTicketList } = await import('@/services/ticketApi');
             const data = await fetchTicketList(params) ?? {};
-            const raw = Array.isArray(data) ? data : data.results || [];
-            tickets.value = raw.map(normalizeApiRecord);
-            totalCount.value = Array.isArray(data) ? raw.length : data.count || 0;
+            tickets.value = (data.results || []).map(normalizeApiRecord);
+            totalCount.value = data.count || 0;
         } catch (err) {
             fetchError.value = err;
             console.error('useTicketDataStore: fetchTickets failed', err);
@@ -198,9 +197,8 @@ export const useTicketDataStore = defineStore('ticketData', () => {
 
             const params = buildTicketListParams({ startDate: today, endDate: new Date() }, { page: 1, rows: 5, sortField: 'timestamp', sortOrder: -1 });
             const data = await fetchTicketList(params) ?? {};
-            const raw = Array.isArray(data) ? data : data.results || [];
-            tickets.value = raw.map(normalizeApiRecord);
-            totalCount.value = Array.isArray(data) ? raw.length : data.count || 0;
+            tickets.value = (data.results || []).map(normalizeApiRecord);
+            totalCount.value = data.count || 0;
             isInitialized = true;
         } catch (err) {
             fetchError.value = err;
