@@ -59,11 +59,10 @@ const {
     clearFilter
 } = useTicketTableData(filterState, dataTable);
 
-const emailColumns = computed(() => {
-    const cols = [{ header: 'Agent Email', field: 'agent_email', options: availableAgentEmails }];
-    if (isAdmin.value) cols.unshift({ header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails });
-    return cols;
-});
+const emailColumns = computed(() => [
+    { header: 'Customer Email', field: 'customer_email', options: availableCustomerEmails, filterable: isAdmin.value },
+    { header: 'Agent Email', field: 'agent_email', options: availableAgentEmails, filterable: true }
+]);
 </script>
 
 <template>
@@ -196,11 +195,11 @@ const emailColumns = computed(() => {
                 </template>
             </Column>
 
-            <Column v-for="col in emailColumns" :key="col.field" :header="col.header" :filterField="col.field" :showFilterMatchModes="false" style="min-width: 18rem">
+            <Column v-for="col in emailColumns" :key="col.field" :header="col.header" :filterField="col.filterable ? col.field : undefined" :showFilterMatchModes="false" style="min-width: 18rem">
                 <template #body="{ data }">
                     {{ data[col.field] === 'none' ? '—' : data[col.field] }}
                 </template>
-                <template #filter="{ filterModel, filterCallback }">
+                <template v-if="col.filterable" #filter="{ filterModel, filterCallback }">
                     <MultiSelect v-model="filterModel.value" :options="col.options" :placeholder="`Any ${col.header}`" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>

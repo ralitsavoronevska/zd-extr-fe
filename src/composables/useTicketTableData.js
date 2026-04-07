@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useFacetedFilterOptions } from '@/composables/useFacetedFilterOptions';
 import { useCsvExport } from '@/composables/useCsvExport';
 import { applyMockedTicketFilters } from '@/utils/mockedTicketFilters';
+import { maskEmail } from '@/utils/stringUtils';
 import { buildTicketListParams, buildExportParams, exportTicketsCsv } from '@/services/ticketApi';
 import { formatDate } from '@/utils/dateUtils';
 import { PAGE_SIZE_DEFAULT, FILTER_DEBOUNCE_MS } from '@/composables/useTicketFilters';
@@ -116,7 +117,13 @@ export function useTicketTableData(filterState, dataTableRef) {
         return ticketDataStore.tickets;
     });
 
-    const tableData = computed(() => rawTableData.value);
+    // SECURITY: UI-only masking — real emails are still in API responses and Pinia state.
+    // Remove once backend implements server-side masking (see CLAUDE.md "Backend requirement").
+    const tableData = computed(() => {
+        const rows = rawTableData.value;
+        if (isAdmin.value || !rows.length) return rows;
+        return rows.map((row) => ({ ...row, customer_email: maskEmail(row.customer_email) }));
+    });
 
     const totalRecords = computed(() => {
         if (USE_MOCKED) return mockedTotalRecords?.value ?? 0;
@@ -186,7 +193,7 @@ export function useTicketTableData(filterState, dataTableRef) {
     });
 
     return {
-        isLoading, isAdmin,
+        isLoading, isAdmin, maskEmail,
         tableData, totalRecords,
         availableTopics, availableBrands, availableVipLevels,
         availableCustomerEmails, availableAgentEmails, availableChatTags,
