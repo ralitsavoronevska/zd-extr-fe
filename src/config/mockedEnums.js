@@ -5,7 +5,7 @@ export const VIP_TIERS = ['bronze', 'silver', 'gold', 'platinum', 'diamond'];
 export const VIP_SEGMENT_ORDER = ['none', 'normal', ...VIP_TIERS];
 
 // CSAT score values for filter dropdown
-export const CSAT_OPTIONS = ['bad', 'good', 'unoffered'];
+export const CSAT_OPTIONS = ['bad', 'good', 'unoffered', 'offered'];
 
 // Sentiments treated as negative for chart and stats aggregation
 export const NEGATIVE_SENTIMENTS = ['negative', 'very negative'];

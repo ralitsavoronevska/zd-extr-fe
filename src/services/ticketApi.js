@@ -1,9 +1,14 @@
 import api from '@/services/authApi';
 
-/** Format a Date as a local ISO-8601 string (avoids UTC shift from native .toISOString()). */
+/** Format a Date as a local ISO-8601 string with timezone offset (e.g. +03:00). */
 function toLocalISOString(date) {
     const pad = (n, len = 2) => String(n).padStart(len, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}Z`;
+    const offsetMin = -date.getTimezoneOffset();
+    const sign = offsetMin >= 0 ? '+' : '-';
+    const absMin = Math.abs(offsetMin);
+    const tzHours = pad(Math.floor(absMin / 60));
+    const tzMinutes = pad(absMin % 60);
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${sign}${tzHours}:${tzMinutes}`;
 }
 
 /** Comma-join an array for multi-value query params. Returns undefined if empty. */
@@ -93,6 +98,9 @@ export function buildTicketListParams(filters = {}, lazyParams = {}) {
 
     // Sentiment reason (text, not boolean)
     if (filters.sentiment_reason) params.sentiment_reason = filters.sentiment_reason;
+
+    // Ticket ID exact match
+    if (filters.ticketid) params.ticketid = filters.ticketid;
 
     return params;
 }

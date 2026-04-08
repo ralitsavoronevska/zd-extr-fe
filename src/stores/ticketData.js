@@ -7,6 +7,9 @@ const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
 // ── Fields that get emptyToNone normalization (short categorical fields) ──
 const NORMALIZE_FIELDS = ['topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment'];
 
+// ── Fields the API returns in Title Case that the frontend expects lowercase ──
+const LOWERCASE_FIELDS = ['vip_level', 'sentiment', 'csat_score'];
+
 // ── Helpers ──
 const toArray = (value) => {
     if (Array.isArray(value)) return value;
@@ -18,14 +21,8 @@ const toArray = (value) => {
 
 // ── Process a single raw ticket into the shape the table expects (mock mode) ──
 function mockedProcessTicket(ticket) {
-    const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
     const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
-    // TODO (future): The backend should provide the proper clean topic category name.
-    // Once the backend is updated, remove this topic prefix extraction.
-    if (normalized.topic && normalized.topic !== 'none') {
-        const idx = normalized.topic.indexOf('|');
-        if (idx !== -1) normalized.topic = normalized.topic.substring(0, idx).trim();
-    }
+    const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
     const chatTagsString = tags
         .map((t) => t.trim().toLowerCase())
         .sort()
@@ -42,18 +39,38 @@ function mockedProcessTicket(ticket) {
 }
 
 /**
- * Normalize an API response record — applies emptyToNone to categorical fields
- * and converts date strings to Date objects. The server does NOT normalize empty values.
- * TODO (future): topic prefix extraction may still be needed until backend provides clean names.
+ * Normalize an API response record:
+ * - emptyToNone on categorical fields
+ * - lowercase vip_level, sentiment, csat_score (API returns Title Case, frontend expects lowercase)
+ * - convert date strings to Date objects
+ * - stringify ticketid (API returns integer, frontend uses string)
+ * - build _chatTagsString from chat_tags[] for filter compatibility
  */
 function normalizeApiRecord(ticket) {
     const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
+
+    for (const field of LOWERCASE_FIELDS) {
+        if (typeof normalized[field] === 'string' && normalized[field] !== 'none') {
+            normalized[field] = normalized[field].toLowerCase();
+        }
+    }
+
+    const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
+    const chatTagsString = tags
+        .map((t) => t.trim().toLowerCase())
+        .sort()
+        .join(', ');
+
     return {
         ...ticket,
         ...normalized,
+        ticketid: String(ticket.ticketid),
         timestamp: ticket.timestamp ? new Date(ticket.timestamp) : null,
         started_at: ticket.started_at ? new Date(ticket.started_at) : null,
-        updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null
+        updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
+        has_chat_transcript: ticket.has_chat_transcript === true,
+        has_email_transcript: ticket.has_email_transcript === true,
+        _chatTagsString: chatTagsString
     };
 }
 
@@ -170,7 +187,7 @@ export const useTicketDataStore = defineStore('ticketData', () => {
         fetchError.value = null;
         try {
             const { fetchTicketList } = await import('@/services/ticketApi');
-            const data = await fetchTicketList(params) ?? {};
+            const data = (await fetchTicketList(params)) ?? {};
             tickets.value = (data.results || []).map(normalizeApiRecord);
             totalCount.value = data.count || 0;
         } catch (err) {
@@ -196,7 +213,7 @@ export const useTicketDataStore = defineStore('ticketData', () => {
             today.setHours(0, 0, 0, 0);
 
             const params = buildTicketListParams({ startDate: today, endDate: new Date() }, { page: 1, rows: 5, sortField: 'timestamp', sortOrder: -1 });
-            const data = await fetchTicketList(params) ?? {};
+            const data = (await fetchTicketList(params)) ?? {};
             tickets.value = (data.results || []).map(normalizeApiRecord);
             totalCount.value = data.count || 0;
             isInitialized = true;

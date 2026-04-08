@@ -338,9 +338,9 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 | `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
 | `VITE_FIREBASE_APP_ID` | Firebase app ID |
-| `VITE_API_URL` | API proxy target for dev server (fallback: `http://56.228.5.130`) |
+| `VITE_API_URL` | API proxy target for dev server (fallback: `http://13.53.64.132`) |
 
-API proxy (dev only): `/api/` → `VITE_API_URL` or `http://56.228.5.130` (configured in `vite.config.mjs`)
+API proxy (dev only): `/api/` → `VITE_API_URL` or `http://13.53.64.132` (configured in `vite.config.mjs`)
 
 ---
 

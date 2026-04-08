@@ -75,6 +75,7 @@ export function useTicketTableData(filterState, dataTableRef) {
     //  API MODE — server-side filtering, pagination, aggregations
     // ════════════════════════════════════════════════════════════════════
     let fetchDataDebounceTimer = null;
+    let initialFetchDone = false;
 
     async function fetchData() {
         if (USE_MOCKED) return;
@@ -99,11 +100,15 @@ export function useTicketTableData(filterState, dataTableRef) {
         }, FILTER_DEBOUNCE_MS);
     }
 
-    // Watch filter changes in API mode — debounced
+    // Watch filter changes in API mode — debounced.
+    // Skip the first emission to avoid duplicating the onMounted fetch.
     if (!USE_MOCKED) {
         watch(
             () => JSON.stringify(extractFilterParams()),
-            () => debouncedFetchData(),
+            () => {
+                if (!initialFetchDone) return;
+                debouncedFetchData();
+            },
             { deep: false }
         );
     }
@@ -176,19 +181,18 @@ export function useTicketTableData(filterState, dataTableRef) {
     // ── Wrapped filter actions (state change + fetch) ──
     function setQuickDateFilter(period) {
         applyQuickDateFilter(period);
-        if (!USE_MOCKED) fetchData();
     }
 
     function clearFilter() {
         resetFilters();
-        if (!USE_MOCKED) fetchData();
     }
 
     // ── Init ──
     onMounted(async () => {
         await ticketDataStore.lazyInit();
         if (!USE_MOCKED) {
-            tableStore.fetchAllAggregations(extractFilterParams());
+            await tableStore.fetchAllAggregations(extractFilterParams());
+            initialFetchDone = true;
         }
     });
 

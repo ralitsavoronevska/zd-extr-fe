@@ -157,7 +157,8 @@ export const useAuthStore = defineStore('auth', () => {
 
                     // Re-validate auth when user returns to the tab
                     // (catches cleared IndexedDB, expired tokens, etc.)
-                    // Two checks: (1) verify Firebase Auth's IDB still exists — if a user
+                    // Two checks:
+                    // (1) verify Firebase Auth's IDB still exists — if a user
                     // cleared site data, the in-memory token survives but persistence is gone,
                     // so the next page load would lose the session silently. Detect it now.
                     // (2) Force a token refresh as a secondary check for revoked tokens.
