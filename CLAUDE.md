@@ -36,7 +36,7 @@
 
 1. **Dual-mode architecture (mock vs API)** — Controlled by `VITE_USE_MOCKED_DATA` env var. **Mock mode**: loads all data client-side from JSON, filters/aggregates in the browser. **API mode**: server-side pagination, filtering, and aggregation via 7 REST endpoints (see API Endpoints section). Every composable, store, and view branches on `USE_MOCKED` to use the correct data path.
 
-2. **Pinia `ticketDataStore` in `stores/ticketData.js`** — A setup-style Pinia store with two code paths. **Mock mode**: loads all data once, IDB cache with 1-hour TTL, batched `processRecords`. **API mode**: `fetchTickets(params)` calls `GET /api/ticket-conversation-summaries/` per page/filter change; `fetchTicketById(id)` calls `GET /api/ticket-conversation-summaries/{id}/` for transcript detail. `lazyInit()` dispatches to the correct mode. `tickets` (API) and `mockedFullProcessedTickets` (mock) use `shallowRef` to avoid deep-reactivity overhead.
+2. **Pinia `ticketDataStore` in `stores/ticketData.js`** — A setup-style Pinia store with two code paths. **Mock mode**: loads all data once, IDB cache with 1-hour TTL, batched `processRecords`. **API mode**: `fetchTickets(params)` calls `GET /api/ticket-conversation-summaries/` per page/filter change; `fetchTicketById(id)` calls `GET /api/ticket-summaries/{ticketid}/` for transcript detail. `lazyInit()` dispatches to the correct mode. `tickets` (API) and `mockedFullProcessedTickets` (mock) use `shallowRef` to avoid deep-reactivity overhead.
 
 3. **Batched `processRecords` to prevent main-thread blocking (mock mode only)** — 30k tickets are processed in batches of 150. Between batches, `scheduler.yield()` (Chrome 129+) or `setTimeout(0)` hands control back to the browser, keeping each task under the 50ms long-task threshold and reducing Lighthouse TBT to near-zero.
 
@@ -75,6 +75,9 @@ src/
 │   ├── useFacetedFilterOptions.js     # Cascading multiselect options (mock mode — bitmask aggregation)
 │   ├── useCsvExport.js                # CSV generation with >10k row / >2 MB warnings (mock mode)
 │   ├── useChartAggregations.js        # Chart.js datasets from mock topicStats or API topicChartData
+│   ├── useTicketFilters.js            # Filter state, createInitialFilters(), extractFilterParams(), constants (PAGE_SIZE_DEFAULT, etc.)
+│   ├── useTicketTableData.js          # Table data composable: column defs, email masking for non-admins, row transforms
+│   ├── useTranscriptDialog.js         # Transcript dialog state + fetch-on-demand for ticket detail
 │   ├── useApiVipAggregation.js        # API-mode: transforms /api/vip-csat-data/ into DataTable rows
 │   ├── useMockedVipAggregation.js     # Mock-mode: client-side VIP × date CSAT aggregation
 │   ├── useApiStatsAggregation.js      # API-mode: maps /api/ticket-stats/ to display format
@@ -89,7 +92,8 @@ src/
 │   ├── mockedTicketFilters.js         # Mock-mode: applyMockedTicketFilters() — single-pass filter loop
 │   ├── normalization.js               # emptyToNone(), normalizeTranscript()
 │   ├── stringUtils.js                 # cleanAndFormatString(), maskEmail()
-│   └── dateUtils.js                   # formatDate() helper
+│   ├── dateUtils.js                   # formatDate() helper
+│   └── debounce.js                    # debounce() utility for throttling rapid input
 ├── config/
 │   └── mockedEnums.js                 # VIP_TIERS, VIP_SEGMENT_ORDER, CSAT_OPTIONS, SENTIMENT_OPTIONS, NEGATIVE_SENTIMENTS
 ├── views/
@@ -98,9 +102,12 @@ src/
 │   ├── uikit/TableDoc.vue             # Main DataTable with all filters
 │   ├── uikit/ChartDoc.vue             # Topic/sentiment bar+line charts (async)
 │   ├── uikit/VipTableDoc.vue          # VIP customer segment table
-│   └── pages/auth/Login.vue           # Email/password login form
+│   ├── pages/auth/Login.vue           # Email/password login form
+│   ├── pages/auth/Error.vue           # Error page (/error route)
+│   └── pages/auth/Access.vue          # Access denied page (/access-denied route)
 ├── components/
 │   ├── StatsWidget.vue                # 8-metric cards (CSAT, sentiment, VIP, compliance…)
+│   ├── TranscriptDialog.vue           # Transcript viewer dialog (chat + email transcripts)
 │   ├── Logo.vue                       # Theme-aware SVG logo (dark/light)
 │   └── FloatingConfigurator.vue       # Theme toggle button (login page)
 ├── layout/
@@ -108,14 +115,14 @@ src/
 │   ├── AppFooter.vue
 │   └── composables/layout.js          # Dark mode state (useLayout composable, persisted to localStorage)
 ├── firebase/index.js                  # Firebase SDK init: exports `auth` and `db` (Firestore) instances
-└── assets/layout/                     # SCSS: _topbar, _core, _typography, _preloading, _utils, variables/
+└── assets/layout/                     # SCSS: layout.scss, _topbar, _core, _typography, _preloading, _utils, _mixins, _responsive, variables/ (_common, _dark, _light)
 ```
 
 ---
 
 ## API Endpoints (API mode)
 
-All endpoints use the same common filter params: `timestamp_gte`, `timestamp_lt`, `started_at_gte/lt`, `updated_at_gte/lt`, plus attribute filters (`brand`, `topic`, `vip_level`, `agent_email`, `customer_email`, `chat_tags`, `csat_score`, `sentiment`). Multi-value filters are comma-separated (e.g. `brand=BrandA,BrandB`).
+Each endpoint accepts a different subset of filter params. All share `timestamp_gte`/`timestamp_lt`. Only the ticket list and export add `started_at_gte/lt`, `updated_at_gte/lt`. Attribute filters (`brand`, `topic`, `vip_level`, `agent_email`, `customer_email`, `chat_tags`, `csat_score`, `sentiment`) vary per endpoint — see param builders below for exact coverage. Multi-value filters are comma-separated (e.g. `brand=BrandA,BrandB`).
 
 | Endpoint | Method | Purpose | Extra Params |
 |---|---|---|---|
@@ -125,9 +132,16 @@ All endpoints use the same common filter params: `timestamp_gte`, `timestamp_lt`
 | `/api/ticket-stats/` | GET | Aggregated stats for StatsWidget | — |
 | `/api/topic-chart-data/` | GET | Topic distribution for charts (max 100, sorted by total desc) | — |
 | `/api/vip-csat-data/` | GET | VIP segment × date CSAT grid | — |
-| `/api/ticket-summaries/export/` | GET | Streaming CSV (all filters, no pagination) | Same text filters as list |
+| `/api/ticket-summaries/export/` | GET | Streaming CSV (no pagination) | `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` only (no text-contains, no agent/customer email, no chat_tags, no started_at/updated_at) |
 
-Param builders in `src/services/ticketApi.js`: `buildTicketListParams()`, `buildFilterOptionsParams()`, `buildStatsParams()`, `buildTopicChartParams()`, `buildVipCsatParams()`, `buildExportParams()`. Each builder sends only the params its endpoint accepts — e.g. `buildVipCsatParams` only sends `timestamp_gte/lt` + `vip_level` + `csat_score`; `buildTopicChartParams` adds `brand`, `topic`, `sentiment` on top of that but omits `agent_email`/`customer_email`/`chat_tags`.
+Param builders in `src/services/ticketApi.js`: `buildTicketListParams()`, `buildFilterOptionsParams()`, `buildNarrowedFilterOptionsParams()`, `buildStatsParams()`, `buildTopicChartParams()`, `buildVipCsatParams()`, `buildExportParams()`. Each builder sends only the params its endpoint accepts:
+- `buildTicketListParams` — full set: all dates, all attributes, pagination, ordering, search, ticketid, sentiment_reason, boolean text-contains
+- `buildFilterOptionsParams` — `timestamp_gte/lt` only (returns unfiltered distinct values for the active filter's own dropdown)
+- `buildNarrowedFilterOptionsParams` — `timestamp_gte/lt` + all attribute filters (returns narrowed distinct values for inactive filter dropdowns)
+- `buildStatsParams` — `timestamp_gte/lt` + all attribute filters
+- `buildTopicChartParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (omits `agent_email`/`customer_email`/`chat_tags`/`started_at`/`updated_at`)
+- `buildVipCsatParams` — `timestamp_gte/lt` + `vip_level` + `csat_score` only
+- `buildExportParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (same subset as topic chart)
 
 ### Backend requirement: server-side customer email masking (SECURITY)
 
@@ -163,14 +177,19 @@ Once the backend implements this, the frontend's client-side masking (`maskEmail
 | `sentiment` | string/null | `null` | exact match (trimmed, lowercase) |
 | `chat_transcript` | string/null | `null` | text contains |
 | `email_transcript` | string/null | `null` | text contains |
+| `sentiment_reason` | string/null | `null` | text contains |
 | `summary` | string/null | `null` | text contains |
 | `startDate` | Date/null | today 00:00 | timestamp >= startDate |
 | `endDate` | Date/null | tomorrow 00:00 | timestamp < endDate |
+| `startedAtStart` | Date/null | `null` | started_at >= startedAtStart |
+| `startedAtEnd` | Date/null | `null` | started_at < startedAtEnd |
+| `updatedAtStart` | Date/null | `null` | updated_at >= updatedAtStart |
+| `updatedAtEnd` | Date/null | `null` | updated_at < updatedAtEnd |
 
 ### Faceted options (`useFacetedFilterOptions` — mock mode only; API mode uses `/api/ticket-filter-options/`)
 
 `baseFilterParams` — non-multiselect params passed to every faceted query (date, text, single-select):
-- `globalFilter`, `ticketid`, `csat_score`, `sentiment`, `sentiment_reason`, `chat_transcript`, `email_transcript`, `summary`, `startDate`, `endDate`
+- `globalFilter`, `ticketid`, `csat_score`, `sentiment`, `sentiment_reason`, `chat_transcript`, `email_transcript`, `summary`, `startDate`, `endDate`, `startedAtStart`, `startedAtEnd`, `updatedAtStart`, `updatedAtEnd`
 
 `activeMultiselects` — array params that participate in cross-filtering:
 - `topic`, `brand`, `vip_level`, `customer_email`, `agent_email`, `_chatTagsString`
@@ -248,12 +267,12 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 
 ### Adding a new filter to TableDoc
 
-1. Add `filterField: { value: defaultValue, matchMode: FilterMatchMode.X }` to `createInitialFilters()` in `TableDoc.vue`
-2. Add the param to `extractFilterParams()` in `TableDoc.vue`
+1. Add `filterField: { value: defaultValue, matchMode: FilterMatchMode.X }` to `createInitialFilters()` in `src/composables/useTicketFilters.js`
+2. Add the param to `extractFilterParams()` in `src/composables/useTicketFilters.js`
 3. **Mock mode**: Add the filter logic to `applyMockedTicketFilters` in `src/utils/mockedTicketFilters.js`
 4. **Mock mode multiselect**: add to `activeMultiselects` + `facetedOptions(...)` computed in `useFacetedFilterOptions.js`
 5. **Mock mode text/date/single-select**: add to `baseFilterParams` in `useFacetedFilterOptions.js` only
-6. **API mode**: Add the param to the appropriate `build*Params()` function in `src/services/ticketApi.js` (usually `buildCommonFilterParams` for attribute filters, or `buildTicketListParams` for text-contains/search). The backend must also support the new param.
+6. **API mode**: Add the param to the appropriate `build*Params()` function in `src/services/ticketApi.js` (usually `addAllAttributeFilters` for attribute filters, or `buildTicketListParams` for text-contains/search). The backend must also support the new param.
 7. Add the `<Column>` with `:filterField` and `#filter` slot in the `<DataTable>`
 8. Filtered results auto-sync — mock mode syncs to `tableStore`; API mode re-fetches all endpoints
 
@@ -294,7 +313,7 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 
 ### Filters not working
 - **Mock mode**: Verify the filter param is passed to `applyMockedTicketFilters` in `filteredTickets` computed (TableDoc.vue). Verify the filter logic exists in `mockedTicketFilters.js`.
-- **API mode**: Verify the filter param is included in `extractFilterParams()` (TableDoc.vue) and mapped in the appropriate `build*Params()` function in `ticketApi.js`. Check that the backend supports the param.
+- **API mode**: Verify the filter param is included in `extractFilterParams()` (`useTicketFilters.js`) and mapped in the appropriate `build*Params()` function in `ticketApi.js`. Check that the backend supports the param.
 - Multiselect filters use `FilterService.register('containsAny', ...)` — confirm registration runs before DataTable mounts (mock mode)
 - Faceted options (mock mode): check whether the field is in `baseFilterParams` or `activeMultiselects` — wrong bucket means it won't narrow the facet correctly
 - Check that normalized data uses `'none'` (string) for empty fields, not `null`/`''`
@@ -352,7 +371,7 @@ API proxy (dev only): `/api/` → `VITE_API_URL` or `http://13.53.64.132` (confi
 - **Named constants over magic numbers** — e.g. `PAGE_SIZE_DEFAULT = 5`, `FILTER_DEBOUNCE_MS = 300`, `CSAT_HIGH_THRESHOLD = 80`, `CSV_ROW_WARN_THRESHOLD = 10_000`, `PROCESS_BATCH_SIZE = 150`, `IDB_TIMEOUT_MS = 5000`, `REFRESH_ENDPOINT`, `DJANGO_TOKEN_ENDPOINT`.
 - **No virtual scrolling on DataTable** — lazy pagination (5 rows default, `PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100]`) is used instead. The DataTable uses `lazy=true` with `onPage`/`onFilter` events. Mock mode slices `filteredTickets` client-side; API mode receives pre-paginated results from the server.
 - **Data is already normalized** by `processRecords` (mock) or `normalizeApiRecord` (API) — no need for defensive `|| 'none'` / `|| 'No Data'` checks downstream.
-- **`topic` is a multiselect filter** — its value is `string[]`, not `string|null`. Mock mode: lives in `activeMultiselects` in `useFacetedFilterOptions`. API mode: comma-joined in `buildCommonFilterParams`.
+- **`topic` is a multiselect filter** — its value is `string[]`, not `string|null`. Mock mode: lives in `activeMultiselects` in `useFacetedFilterOptions`. API mode: sent as array via `addAllAttributeFilters` in `ticketApi.js`.
 - **API ticket list does NOT return transcripts** — it returns `has_chat_transcript` / `has_email_transcript` booleans. Full transcripts are fetched on-demand via `GET /api/ticket-summaries/{ticketid}/`.
 - **`!important` inside CSS `var()` is invalid** — silently ignored by browsers. Override PrimeVue tokens by redefining the CSS variable, not with `!important` inside the value.
 - **Chart topic limit** — `useChartAggregations.js` caps charts at `TOP_TOPICS_LIMIT = 100` topics (sorted by total desc). Chrome's max canvas width is 32,767px; at 48px/bar, exceeding ~682 bars silently breaks the canvas. 100 is a safe, readable default.

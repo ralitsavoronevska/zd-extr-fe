@@ -7,15 +7,15 @@ info:
     Това API замества единичния ендпойнт (~100MB, 65 сек. зареждане) с 7 оптимизирани ендпойнта.
 
     ## Извлечено от фронтенд код
-    Спецификацията е извлечена от анализ на фронтенд сорс кода (zd-extr-fe-refactored-master):
-    - **TicketService.js** — API извиквания и очаквани отговори
+    Спецификацията е извлечена от анализ на фронтенд сорс кода (zd-extr-fe):
+    - **ticketApi.js** — API извиквания, param builders и очаквани отговори
     - **ticketData.js** — data flow и полета
     - **useFacetedFilterOptions.js** — faceted filtering логика
-    - **useStatsAggregation.js** — stats агрегация
-    - **useVipAggregation.js** — VIP CSAT матрица
-    - **useCSVExport.js** — CSV колони и формат
-    - **ticketFilters.js** — пълна филтър логика
-    - **enums.js** — фиксирани стойности (VIP_TIERS, CSAT_OPTIONS, SENTIMENT_OPTIONS, NEGATIVE_SENTIMENTS)
+    - **useApiStatsAggregation.js** / **useMockedStatsAggregation.js** — stats агрегация
+    - **useApiVipAggregation.js** / **useMockedVipAggregation.js** — VIP CSAT матрица
+    - **useCsvExport.js** — CSV колони и формат (mock mode)
+    - **mockedTicketFilters.js** — пълна филтър логика (mock mode)
+    - **mockedEnums.js** — фиксирани стойности (VIP_TIERS, CSAT_OPTIONS, SENTIMENT_OPTIONS, NEGATIVE_SENTIMENTS)
 
     ## Конвенции
     - Дати: ISO 8601 (2026-03-01T00:00:00Z)
@@ -37,19 +37,19 @@ tags:
   - name: Tickets
     description: |
       Paginated ticket list и detail.
-      Файлове: TicketService.js, ticketData.js, TableDoc.vue
+      Файлове: ticketApi.js, ticketData.js, TableDoc.vue
   - name: Filters
     description: |
       Distinct стойности за dropdown филтри.
-      Файл: useFacetedFilterOptions.js
+      Файлове: useFacetedFilterOptions.js (mock mode), ticketApi.js (API mode)
   - name: Analytics
     description: |
       Агрегирани статистики, topic charts, VIP CSAT.
-      Файлове: useStatsAggregation.js, tableStore.js, useVipAggregation.js
+      Файлове: useApiStatsAggregation.js, tableStore.js, useApiVipAggregation.js, useChartAggregations.js
   - name: Export
     description: |
       Streaming CSV download.
-      Файл: useCSVExport.js
+      Файлове: ticketApi.js (API mode), useCsvExport.js (mock mode)
 
 paths:
   /api/ticket-conversation-summaries/:
@@ -58,7 +58,7 @@ paths:
       summary: Paginated ticket list (основен ендпойнт)
       operationId: listTickets
       description: |
-        **Източник:** TicketService.js → getTicketSummaries(), редове 14-54
+        **Източник:** ticketApi.js → fetchTicketList() + buildTicketListParams()
 
         Основният ендпойнт. Фронтендът го извиква при всяка промяна на страница и филтър.
 
@@ -145,7 +145,7 @@ paths:
             Global search. Код търси едновременно в: ticketid, topic, brand,
             vip_level, customer_email, agent_email, csat_score, sentiment,
             sentiment_reason, summary, chat_transcript, email_transcript, _chatTagsString
-            (виж ticketFilters.js ред 61-76)
+            (виж mockedTicketFilters.js)
           schema:
             type: string
             example: "refund request"
@@ -172,7 +172,7 @@ paths:
           in: query
           required: false
           description: |
-            Multi-value филтър. Допустими стойности от enums.js VIP_SEGMENT_ORDER:
+            Multi-value филтър. Допустими стойности от mockedEnums.js VIP_SEGMENT_ORDER:
             none, normal, bronze, silver, gold, platinum, diamond
           schema:
             type: string
@@ -207,14 +207,14 @@ paths:
         - name: csat_score
           in: query
           required: false
-          description: "Exact match. Стойности от enums.js CSAT_OPTIONS"
+          description: "Exact match. Стойности от mockedEnums.js CSAT_OPTIONS"
           schema:
             type: string
             enum: [good, bad, unoffered, offered]
         - name: sentiment
           in: query
           required: false
-          description: "Exact match. Стойности от enums.js SENTIMENT_OPTIONS"
+          description: "Exact match. Стойности от mockedEnums.js SENTIMENT_OPTIONS"
           schema:
             type: string
             enum: [positive, very positive, neutral, negative, very negative]
@@ -254,7 +254,7 @@ paths:
           description: |
             Paginated ticket list.
             Код очаква: response.data.results и response.data.count
-            (TicketService.js ред 52-53)
+            (ticketApi.js → fetchTicketList)
           content:
             application/json:
               schema:
@@ -270,9 +270,8 @@ paths:
       summary: Ticket detail с транскрипции
       operationId: getTicketDetail
       description: |
-        **Източник:** TicketService.js → getTicketById() (ред 57-62)
+        **Източник:** ticketApi.js → fetchTicketDetail()
 
-        В момента връща null за API mode — трябва да се имплементира.
         Връща ПЪЛНИЯ обект ВКЛЮЧИТЕЛНО chat_transcript и email_transcript.
         Фронтендът извиква при натискане на "View" бутон.
 
@@ -304,17 +303,18 @@ paths:
       summary: Distinct стойности за dropdown филтри
       operationId: getFilterOptions
       description: |
-        **Източник:** useFacetedFilterOptions.js (цял файл, 130 реда)
+        **Източник:** ticketApi.js → buildFilterOptionsParams() (full) / buildNarrowedFilterOptionsParams() (narrowed)
 
-        В момента фронтендът изчислява distinct values client-side с bitmask алгоритъм.
-        Този ендпойнт трябва да възпроизведе СЪЩАТА логика server-side.
+        Фронтендът прави ДВЕ извиквания към този ендпойнт:
+        1. **Full** (само timestamp) — за dropdown-а на активния филтър (потребителят да може да деселектне)
+        2. **Narrowed** (timestamp + всички attribute филтри) — за dropdown-ите на неактивните филтри
 
         **Faceted filtering логика:**
         За всяко multiselect поле, прилагай ВСИЧКИ активни филтри ОСВЕН
         филтъра на самото поле. Когато потребителят избере brand=BrandA,
         върнатите topic стойности включват САМО topics от тикети на BrandA.
 
-        **Всички масиви сортирани азбучно** (useFacetedFilterOptions.js ред 108)
+        **Всички масиви сортирани азбучно**
 
         **Целево време:** < 300ms (p95)
         **Макс. payload:** < 20 KB
@@ -395,22 +395,20 @@ paths:
       summary: Агрегирани статистики за dashboard
       operationId: getTicketStats
       description: |
-        **Източник:** useStatsAggregation.js (цял файл, 85 реда)
+        **Източник:** ticketApi.js → buildStatsParams() + useApiStatsAggregation.js
 
-        В момента фронтендът изчислява client-side. Бекендът трябва да
-        възпроизведе СЪЩАТА логика server-side.
-
-        **Compliance логика** (useStatsAggregation.js ред 6-8):
+        **Compliance логика** (useMockedStatsAggregation.js):
         - ok = summary matches /compliance[:\s]+ok/i
         - issue = summary matches /compliance[:\s]+issue/i
         - missing = summary НЕ съдържа думата "compliance"
 
-        **VIP логика** (useStatsAggregation.js ред 38-41):
+        **VIP логика:**
         - vipPlatinum = platinum + diamond заедно
         - vipGold = gold
         - vipOther = bronze + silver
 
-        Приема СЪЩИТЕ филтри като list endpoint.
+        **Филтри:** timestamp_gte/lt + всички attribute филтри (brand, topic, vip_level, agent_email, customer_email, chat_tags, csat_score, sentiment).
+        НЕ приема: started_at/updated_at, search, ticketid, sentiment_reason, text-contains.
 
         **Целево време:** < 500ms (p95)
         **Макс. payload:** < 5 KB
@@ -485,13 +483,15 @@ paths:
       summary: Topic статистики за графики
       operationId: getTopicChartData
       description: |
-        **Източник:** tableStore.js → topicStats computed (ред 18-39) + useChartAggregations.js
+        **Източник:** ticketApi.js → buildTopicChartParams() + useChartAggregations.js
 
-        **Negative логика** (от enums.js NEGATIVE_SENTIMENTS):
+        **Negative логика** (от mockedEnums.js NEGATIVE_SENTIMENTS):
         sentiment IN ['negative', 'very negative']
 
         Сортирано по total descending. Макс 100 топика.
-        Приема СЪЩИТЕ филтри като list endpoint.
+
+        **Филтри:** timestamp_gte/lt + brand, topic, vip_level, csat_score, sentiment.
+        НЕ приема: agent_email, customer_email, chat_tags, started_at/updated_at, search, ticketid, sentiment_reason, text-contains.
 
         **Целево време:** < 500ms (p95)
         **Макс. payload:** < 10 KB
@@ -551,18 +551,20 @@ paths:
       summary: VIP segment x date CSAT матрица
       operationId: getVipCsatData
       description: |
-        **Източник:** useVipAggregation.js (цял файл, 120 реда)
+        **Източник:** ticketApi.js → buildVipCsatParams() + useApiVipAggregation.js
 
-        **Сегментен ред** (от enums.js VIP_SEGMENT_ORDER):
+        **Сегментен ред** (от mockedEnums.js VIP_SEGMENT_ORDER):
         none, normal, bronze, silver, gold, platinum, diamond
 
-        **CSAT логика** (useVipAggregation.js ред 60-63):
+        **CSAT логика:**
         - good = csat_score === 'good'
         - bad = csat_score === 'bad'
         - rated = good + bad (unoffered изключени)
 
         **Дати:** генерирани от min(timestamp) до max(timestamp) по дни
-        Приема СЪЩИТЕ филтри като list endpoint.
+
+        **Филтри:** timestamp_gte/lt + vip_level + csat_score САМО.
+        НЕ приема: brand, topic, agent_email, customer_email, chat_tags, sentiment, started_at/updated_at, search, ticketid, text-contains.
 
         **Целево време:** < 500ms (p95)
         **Макс. payload:** < 20 KB
@@ -606,11 +608,9 @@ paths:
       summary: Streaming CSV export
       operationId: exportTicketsCsv
       description: |
-        **Източник:** useCSVExport.js (цял файл, 95 реда)
+        **Източник:** ticketApi.js → buildExportParams() + exportTicketsCsv()
 
-        В момента фронтендът генерира CSV client-side от filteredRows.
-
-        **CSV колони** (от useCSVExport.js ред 60-73, ТОЧЕН ред):
+        **CSV колони** (от useCsvExport.js, mock-mode reference):
         Date, Topic, Ticket ID, Brand, VIP Level, Customer Email, Agent Email,
         CSAT Score, Chat Tags, Chat Transcript, Email Transcript, Sentiment,
         Sentiment Reason, Summary
@@ -682,7 +682,7 @@ components:
     TicketSummary:
       type: object
       description: |
-        Тикет в list response. Полета от ticketData.js → processTicket() и TableDoc.vue.
+        Тикет в list response. Полета от ticketData.js и TableDoc.vue.
         ВАЖНО: НЕ съдържа chat_transcript и email_transcript текст!
       required:
         - ticketid
@@ -733,7 +733,7 @@ components:
           # Контрактът дефинира lowercase. Фронтендът нормализира в lowercase, 
           # но бекендът трябва да реши кое е каноничното — или да връща lowercase директно, 
           # или да приема и двата варианта при филтриране.
-          description: От enums.js VIP_SEGMENT_ORDER. Може да е празен string — фронтендът конвертира в "none".
+          description: От mockedEnums.js VIP_SEGMENT_ORDER. Може да е празен string — фронтендът конвертира в "none".
           enum: [none, normal, bronze, silver, gold, platinum, diamond]
           example: "gold"
         customer_email:
@@ -748,7 +748,7 @@ components:
           type: string
           # COMMENT: Бекендът връща lowercase (коректно). 
           # Ако се промени на Title Case — фронтендът вече нормализира.
-          description: От enums.js CSAT_OPTIONS
+          description: От mockedEnums.js CSAT_OPTIONS
           enum: [good, bad, unoffered, offered]
           example: "good"
         sentiment:
@@ -757,7 +757,7 @@ components:
           # Контрактът дефинира lowercase. Фронтендът нормализира в lowercase, 
           # но бекендът трябва да реши кое е каноничното — или да връща lowercase директно, 
           # или да приема и двата варианта при филтриране.
-          description: От enums.js SENTIMENT_OPTIONS
+          description: От mockedEnums.js SENTIMENT_OPTIONS
           enum: [positive, very positive, neutral, negative, very negative]
           example: "positive"
         sentiment_reason:
@@ -766,7 +766,7 @@ components:
           example: "Quick resolution of deposit query"
         summary:
           type: string
-          description: Кратко резюме. Използва се и за compliance regex в useStatsAggregation.js
+          description: Кратко резюме. Използва се и за compliance regex в useMockedStatsAggregation.js
           example: "Customer asked about deposit timing..."
         chat_tags:
           type: array
@@ -833,7 +833,7 @@ components:
       description: |
         Distinct стойности за dropdowns. Всички масиви сортирани азбучно.
         Празни/null стойности изключени.
-        Източник: useFacetedFilterOptions.js ред 108 sortFn
+        Източник: useFacetedFilterOptions.js sortFn
       properties:
         topic:
           type: array
@@ -879,7 +879,7 @@ components:
     TicketStats:
       type: object
       description: |
-        Агрегирани статистики. Логика от useStatsAggregation.js.
+        Агрегирани статистики. Логика от useMockedStatsAggregation.js.
         Compliance е regex-based върху summary полето.
       properties:
         total_tickets:
@@ -943,7 +943,7 @@ components:
         compliance:
           type: object
           description: |
-            Regex-based от useStatsAggregation.js:
+            Regex-based от useMockedStatsAggregation.js:
             ok = /compliance[:\s]+ok/i
             issue = /compliance[:\s]+issue/i
             missing = не съдържа "compliance"
@@ -995,8 +995,8 @@ components:
     VipCsatData:
       type: object
       description: |
-        VIP CSAT матрица. Логика от useVipAggregation.js.
-        Сегментен ред от enums.js VIP_SEGMENT_ORDER.
+        VIP CSAT матрица. Логика от useApiVipAggregation.js / useMockedVipAggregation.js.
+        Сегментен ред от mockedEnums.js VIP_SEGMENT_ORDER.
       properties:
         segments:
           type: array
