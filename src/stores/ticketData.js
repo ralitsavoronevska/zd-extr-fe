@@ -19,14 +19,18 @@ const toArray = (value) => {
     return [];
 };
 
-// ── Process a single raw ticket into the shape the table expects (mock mode) ──
-function mockedProcessTicket(ticket) {
-    const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
-    const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
-    const chatTagsString = tags
+// ── Build _chatTagsString from chat_tags[] (shared by mock + API normalization) ──
+function buildChatTagsString(tags) {
+    return toArray(tags)
+        .filter((t) => typeof t === 'string' && t.trim())
         .map((t) => t.trim().toLowerCase())
         .sort()
         .join(', ');
+}
+
+// ── Process a single raw ticket into the shape the table expects (mock mode) ──
+function mockedProcessTicket(ticket) {
+    const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
 
     return {
         ...ticket,
@@ -34,7 +38,7 @@ function mockedProcessTicket(ticket) {
         timestamp: new Date(ticket.timestamp),
         started_at: ticket.started_at ? new Date(ticket.started_at) : null,
         updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
-        _chatTagsString: chatTagsString
+        _chatTagsString: buildChatTagsString(ticket.chat_tags)
     };
 }
 
@@ -55,12 +59,6 @@ function normalizeApiRecord(ticket) {
         }
     }
 
-    const tags = toArray(ticket.chat_tags).filter((t) => typeof t === 'string' && t.trim());
-    const chatTagsString = tags
-        .map((t) => t.trim().toLowerCase())
-        .sort()
-        .join(', ');
-
     return {
         ...ticket,
         ...normalized,
@@ -70,7 +68,7 @@ function normalizeApiRecord(ticket) {
         updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
         has_chat_transcript: ticket.has_chat_transcript === true,
         has_email_transcript: ticket.has_email_transcript === true,
-        _chatTagsString: chatTagsString
+        _chatTagsString: buildChatTagsString(ticket.chat_tags)
     };
 }
 

@@ -90,35 +90,17 @@ export function useTicketFilters() {
     }
 
     // ── Date computed getters/setters for template v-model ──
-    const fromDate = computed({
-        get: () => filters.value.timestamp?.constraints?.[0]?.value ?? null,
-        set: (val) => { if (filters.value.timestamp?.constraints?.[0]) filters.value.timestamp.constraints[0].value = val; }
+    const dateComputed = (field, index) => computed({
+        get: () => filters.value[field]?.constraints?.[index]?.value ?? null,
+        set: (val) => { if (filters.value[field]?.constraints?.[index]) filters.value[field].constraints[index].value = val; }
     });
 
-    const toDate = computed({
-        get: () => filters.value.timestamp?.constraints?.[1]?.value ?? null,
-        set: (val) => { if (filters.value.timestamp?.constraints?.[1]) filters.value.timestamp.constraints[1].value = val; }
-    });
-
-    const startedAtFrom = computed({
-        get: () => filters.value.started_at?.constraints?.[0]?.value ?? null,
-        set: (val) => { if (filters.value.started_at?.constraints?.[0]) filters.value.started_at.constraints[0].value = val; }
-    });
-
-    const startedAtTo = computed({
-        get: () => filters.value.started_at?.constraints?.[1]?.value ?? null,
-        set: (val) => { if (filters.value.started_at?.constraints?.[1]) filters.value.started_at.constraints[1].value = val; }
-    });
-
-    const updatedAtFrom = computed({
-        get: () => filters.value.updated_at?.constraints?.[0]?.value ?? null,
-        set: (val) => { if (filters.value.updated_at?.constraints?.[0]) filters.value.updated_at.constraints[0].value = val; }
-    });
-
-    const updatedAtTo = computed({
-        get: () => filters.value.updated_at?.constraints?.[1]?.value ?? null,
-        set: (val) => { if (filters.value.updated_at?.constraints?.[1]) filters.value.updated_at.constraints[1].value = val; }
-    });
+    const fromDate = dateComputed('timestamp', 0);
+    const toDate = dateComputed('timestamp', 1);
+    const startedAtFrom = dateComputed('started_at', 0);
+    const startedAtTo = dateComputed('started_at', 1);
+    const updatedAtFrom = dateComputed('updated_at', 0);
+    const updatedAtTo = dateComputed('updated_at', 1);
 
     // ── Quick date filter — modifies state only, caller handles fetch ──
     function applyQuickDateFilter(period) {
@@ -135,11 +117,21 @@ export function useTicketFilters() {
         const start = new Date();
         const end = new Date();
 
-        if (period === 'today') start.setHours(0, 0, 0, 0);
-        else if (period === 'week') (start.setDate(start.getDate() - 7), start.setHours(0, 0, 0, 0));
-        else if (period === 'month') (start.setMonth(start.getMonth() - 1), start.setHours(0, 0, 0, 0));
-        else if (period === '2 months') (start.setMonth(start.getMonth() - 2), start.setHours(0, 0, 0, 0));
-        else if (period === '3 months') (start.setMonth(start.getMonth() - 3), start.setHours(0, 0, 0, 0));
+        if (period === 'today') {
+            start.setHours(0, 0, 0, 0);
+        } else if (period === 'week') {
+            start.setDate(start.getDate() - 7);
+            start.setHours(0, 0, 0, 0);
+        } else if (period === 'month') {
+            start.setMonth(start.getMonth() - 1);
+            start.setHours(0, 0, 0, 0);
+        } else if (period === '2 months') {
+            start.setMonth(start.getMonth() - 2);
+            start.setHours(0, 0, 0, 0);
+        } else if (period === '3 months') {
+            start.setMonth(start.getMonth() - 3);
+            start.setHours(0, 0, 0, 0);
+        }
 
         if (filters.value?.timestamp?.constraints) {
             filters.value.timestamp.constraints[0].value = start;

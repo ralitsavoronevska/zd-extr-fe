@@ -43,7 +43,12 @@ export function useCsvExport(dataTable, filteredRows, formatDate) {
     /**
      * Yield to the main thread between batches to prevent UI blocking.
      */
-    const yieldToMain = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const yieldToMain = () => {
+        if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
+            return scheduler.yield();
+        }
+        return new Promise((resolve) => setTimeout(resolve, 0));
+    };
 
     /**
      * Build CSV string in batches — yields to main thread every CSV_BATCH_SIZE rows

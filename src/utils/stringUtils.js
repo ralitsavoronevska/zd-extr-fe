@@ -25,6 +25,17 @@ const DATE_RE = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2})/
 const SEPARATOR_RE = /\s*(?:\|+|[-–—]+|\band\b|,\s*)\s*/gi;
 const MULTI_NEWLINES_RE = /\n{4,}/g;
 
+// Hoisted formatter — avoids allocating a new Intl.DateTimeFormat per date match
+// (cleanAndFormatString is called for 30k+ tickets, each with multiple date matches)
+const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+});
+
 /** Mask an email address with a fixed-width placeholder to avoid revealing length. */
 export function maskEmail(email) {
     if (!email || email === 'none') return 'none';
@@ -51,14 +62,7 @@ export function cleanAndFormatString(input) {
             const date = new Date(match);
             if (isNaN(date.getTime())) return match;
 
-            const parts = new Intl.DateTimeFormat('en-US', {
-                day: '2-digit',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            }).formatToParts(date);
+            const parts = DATE_FORMATTER.formatToParts(date);
 
             const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
             const formatted = `${get('month')} ${get('day')} ${get('year')} ${get('hour')}:${get('minute')}`;

@@ -51,26 +51,34 @@ export const useTableStore = defineStore('table', () => {
     // Loading states for aggregation endpoints
     const isAggregationsLoading = ref(false);
 
+    // Generation counter — prevents stale responses from overwriting fresh data
+    // when the user changes filters faster than the server responds
+    let aggregationGeneration = 0;
+
     /** FULL options — date-range only, for active field dropdowns. */
     async function fetchFilterOptionsFromApi(filters) {
         const { buildFilterOptionsParams, fetchFilterOptions } = await import('@/services/ticketApi');
         const params = buildFilterOptionsParams(filters);
-        console.group('[tableStore] fetchFilterOptionsFromApi (FULL — date only)');
-        console.log('Params:', params);
         filterOptions.value = await fetchFilterOptions(params);
-        console.log('topics:', filterOptions.value?.topic?.length, '| brands:', filterOptions.value?.brand?.length, '| vipLevels:', filterOptions.value?.vip_level?.length, '| sentiments:', filterOptions.value?.sentiment?.length, '| csatScores:', filterOptions.value?.csat_score?.length);
-        console.groupEnd();
+        if (import.meta.env.DEV) {
+            console.group('[tableStore] fetchFilterOptionsFromApi (FULL — date only)');
+            console.log('Params:', params);
+            console.log('topics:', filterOptions.value?.topic?.length, '| brands:', filterOptions.value?.brand?.length, '| vipLevels:', filterOptions.value?.vip_level?.length, '| sentiments:', filterOptions.value?.sentiment?.length, '| csatScores:', filterOptions.value?.csat_score?.length);
+            console.groupEnd();
+        }
     }
 
     /** NARROWED options — date-range + attribute filters, for inactive field dropdowns. */
     async function fetchNarrowedFilterOptions(filters) {
         const { buildNarrowedFilterOptionsParams, fetchFilterOptions } = await import('@/services/ticketApi');
         const params = buildNarrowedFilterOptionsParams(filters);
-        console.group('[tableStore] fetchNarrowedFilterOptions (NARROWED — date + attributes)');
-        console.log('Params:', params);
         narrowedFilterOptions.value = await fetchFilterOptions(params);
-        console.log('topics:', narrowedFilterOptions.value?.topic?.length, '| brands:', narrowedFilterOptions.value?.brand?.length, '| vipLevels:', narrowedFilterOptions.value?.vip_level?.length, '| sentiments:', narrowedFilterOptions.value?.sentiment?.length, '| csatScores:', narrowedFilterOptions.value?.csat_score?.length);
-        console.groupEnd();
+        if (import.meta.env.DEV) {
+            console.group('[tableStore] fetchNarrowedFilterOptions (NARROWED — date + attributes)');
+            console.log('Params:', params);
+            console.log('topics:', narrowedFilterOptions.value?.topic?.length, '| brands:', narrowedFilterOptions.value?.brand?.length, '| vipLevels:', narrowedFilterOptions.value?.vip_level?.length, '| sentiments:', narrowedFilterOptions.value?.sentiment?.length, '| csatScores:', narrowedFilterOptions.value?.csat_score?.length);
+            console.groupEnd();
+        }
     }
 
     async function fetchStats(filters) {
@@ -93,9 +101,14 @@ export const useTableStore = defineStore('table', () => {
      * Accepts raw filter object from extractFilterParams() — each endpoint builds its own params.
      */
     async function fetchAllAggregations(filters) {
+        const generation = ++aggregationGeneration;
         isAggregationsLoading.value = true;
         try {
             const results = await Promise.allSettled([fetchFilterOptionsFromApi(filters), fetchNarrowedFilterOptions(filters), fetchStats(filters), fetchTopicChart(filters), fetchVipCsat(filters)]);
+
+            // Discard results if a newer request was fired while we were waiting
+            if (generation !== aggregationGeneration) return;
+
             results.forEach((result, i) => {
                 if (result.status === 'rejected') {
                     const names = ['filterOptions', 'narrowedFilterOptions', 'stats', 'topicChartData', 'vipCsatData'];
@@ -103,7 +116,9 @@ export const useTableStore = defineStore('table', () => {
                 }
             });
         } finally {
-            isAggregationsLoading.value = false;
+            if (generation === aggregationGeneration) {
+                isAggregationsLoading.value = false;
+            }
         }
     }
 

@@ -30,16 +30,20 @@ export const db = getFirestore(app); // <--- Add this line to get the Firestore 
 // Firestore's channel listener uses XHR long-polling, not fetch
 const originalXHROpen = XMLHttpRequest.prototype.open;
 XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    this.addEventListener('load', async function () {
-        if (this.status === 400 && typeof url === 'string' && url.includes('firestore.googleapis.com')) {
-            const { useAuthStore } = await import('@/stores/auth');
-            const authStore = useAuthStore();
-            if (authStore.isAuthenticated) {
-                authStore.user = null;
-                authStore.role = null;
-                window.location.href = `${import.meta.env.BASE_URL}login`;
+    // Only attach listener when the URL targets Firestore — avoids adding
+    // an event listener to every XHR globally (analytics, ads, etc.)
+    if (typeof url === 'string' && url.includes('firestore.googleapis.com')) {
+        this.addEventListener('load', async function () {
+            if (this.status === 400) {
+                const { useAuthStore } = await import('@/stores/auth');
+                const authStore = useAuthStore();
+                if (authStore.isAuthenticated) {
+                    authStore.user = null;
+                    authStore.role = null;
+                    window.location.href = `${import.meta.env.BASE_URL}login`;
+                }
             }
-        }
-    });
+        });
+    }
     return originalXHROpen.call(this, method, url, ...rest);
 };

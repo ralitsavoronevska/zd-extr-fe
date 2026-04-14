@@ -7,6 +7,23 @@ let cachedAuth = null;
 let unsubscribeAuth = null;
 let visibilityHandler = null;
 
+// Cooldown for visibility re-validation — avoid expensive indexedDB.databases()
+// and forced token refresh on every tab focus (only re-check once per 60s)
+const VISIBILITY_CHECK_COOLDOWN_MS = 60_000;
+let lastVisibilityCheck = 0;
+
+/** Tear down Firebase auth & visibility listeners (shared by logout + initializeAuth). */
+function cleanupListeners() {
+    if (unsubscribeAuth) {
+        unsubscribeAuth();
+        unsubscribeAuth = null;
+    }
+    if (visibilityHandler) {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+        visibilityHandler = null;
+    }
+}
+
 const DJANGO_TOKEN_ENDPOINT = '/api/token/';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -106,15 +123,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     // ====================== LOGOUT ======================
     async function logout() {
-        // Clean up Firebase listeners before logout
-        if (isFirebase && unsubscribeAuth) {
-            unsubscribeAuth();
-            unsubscribeAuth = null;
-        }
-        if (visibilityHandler) {
-            document.removeEventListener('visibilitychange', visibilityHandler);
-            visibilityHandler = null;
-        }
+        cleanupListeners();
 
         if (isFirebase) {
             const auth = await getFirebaseAuth();
@@ -143,17 +152,9 @@ export const useAuthStore = defineStore('auth', () => {
                 getFirebaseAuth() // initializes/caches auth when needed
             ])
                 .then(([{ onAuthStateChanged }, auth]) => {
-                    // Clean up previous listener if one exists
-                    if (unsubscribeAuth) {
-                        unsubscribeAuth();
-                    }
+                    cleanupListeners();
 
                     let isInitialCheck = true;
-
-                    // Clean up previous visibility listener if one exists
-                    if (visibilityHandler) {
-                        document.removeEventListener('visibilitychange', visibilityHandler);
-                    }
 
                     // Re-validate auth when user returns to the tab
                     // (catches cleared IndexedDB, expired tokens, etc.)
@@ -164,6 +165,10 @@ export const useAuthStore = defineStore('auth', () => {
                     // (2) Force a token refresh as a secondary check for revoked tokens.
                     visibilityHandler = async () => {
                         if (document.visibilityState === 'visible' && user.value) {
+                            const now = Date.now();
+                            if (now - lastVisibilityCheck < VISIBILITY_CHECK_COOLDOWN_MS) return;
+                            lastVisibilityCheck = now;
+
                             try {
                                 // Check if Firebase Auth persistence DB still exists
                                 const dbs = await indexedDB.databases();

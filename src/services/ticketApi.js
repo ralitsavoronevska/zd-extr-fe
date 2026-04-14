@@ -58,6 +58,21 @@ function addAllAttributeFilters(params, filters) {
     if (filters.sentiment) params.sentiment = filters.sentiment;
 }
 
+/** Narrowed attribute filters shared by topic-chart and export endpoints (no agent/customer email, no chat_tags). */
+function addChartExportFilters(params, filters) {
+    const brand = multiParam(filters.brand);
+    if (brand) params.brand = brand;
+
+    const topic = multiParam(filters.topic);
+    if (topic) params.topic = topic;
+
+    const vipLevel = multiParam(filters.vip_level);
+    if (vipLevel) params.vip_level = vipLevel;
+
+    if (filters.csat_score) params.csat_score = filters.csat_score;
+    if (filters.sentiment) params.sentiment = filters.sentiment;
+}
+
 /** Text-contains filters as booleans (true if user typed anything). List + export only. */
 function addBooleanContainsFilters(params, filters) {
     if (filters.summary) params.summary_contains = true;
@@ -147,19 +162,7 @@ export function buildStatsParams(filters = {}) {
 export function buildTopicChartParams(filters = {}) {
     const params = {};
     addTimestampParams(params, filters);
-
-    const brand = multiParam(filters.brand);
-    if (brand) params.brand = brand;
-
-    const topic = multiParam(filters.topic);
-    if (topic) params.topic = topic;
-
-    const vipLevel = multiParam(filters.vip_level);
-    if (vipLevel) params.vip_level = vipLevel;
-
-    if (filters.csat_score) params.csat_score = filters.csat_score;
-    if (filters.sentiment) params.sentiment = filters.sentiment;
-
+    addChartExportFilters(params, filters);
     return params;
 }
 
@@ -188,21 +191,8 @@ export function buildVipCsatParams(filters = {}) {
  */
 export function buildExportParams(filters = {}) {
     const params = {};
-
     addTimestampParams(params, filters);
-
-    const brand = multiParam(filters.brand);
-    if (brand) params.brand = brand;
-
-    const topic = multiParam(filters.topic);
-    if (topic) params.topic = topic;
-
-    const vipLevel = multiParam(filters.vip_level);
-    if (vipLevel) params.vip_level = vipLevel;
-
-    if (filters.csat_score) params.csat_score = filters.csat_score;
-    if (filters.sentiment) params.sentiment = filters.sentiment;
-
+    addChartExportFilters(params, filters);
     return params;
 }
 
@@ -217,12 +207,14 @@ export function buildExportParams(filters = {}) {
  * returns has_chat_transcript / has_email_transcript booleans instead.
  */
 export async function fetchTicketList(params) {
-    console.log('[ticketApi] fetchTicketList request params:', params);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketList request params:', params);
     const response = await api.get('/api/ticket-conversation-summaries/', { params });
     const data = response.data;
-    const rows = Array.isArray(data) ? data.length : (data.results?.length ?? 'N/A');
-    const count = Array.isArray(data) ? data.length : (data.count ?? 'N/A');
-    console.log('[ticketApi] fetchTicketList response — rows received:', rows, '| total count:', count);
+    if (import.meta.env.DEV) {
+        const rows = Array.isArray(data) ? data.length : (data.results?.length ?? 'N/A');
+        const count = Array.isArray(data) ? data.length : (data.count ?? 'N/A');
+        console.log('[ticketApi] fetchTicketList response — rows received:', rows, '| total count:', count);
+    }
     return data;
 }
 
@@ -232,7 +224,7 @@ export async function fetchTicketList(params) {
  */
 export async function fetchTicketDetail(ticketId) {
     const response = await api.get(`/api/ticket-summaries/${ticketId}/`);
-    console.log('[ticketApi] fetchTicketDetail response:', response.data);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketDetail response:', response.data);
     return response.data;
 }
 
@@ -242,9 +234,9 @@ export async function fetchTicketDetail(ticketId) {
  * Response shape: { topic: [...], brand: [...], vip_level: [...], ... }
  */
 export async function fetchFilterOptions(params) {
-    console.log('[ticketApi] fetchFilterOptions request params:', params);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchFilterOptions request params:', params);
     const response = await api.get('/api/ticket-filter-options/', { params });
-    console.log('[ticketApi] fetchFilterOptions response:', response.data);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchFilterOptions response:', response.data);
     return response.data;
 }
 
@@ -253,9 +245,9 @@ export async function fetchFilterOptions(params) {
  * Aggregated statistics for the dashboard StatsWidget.
  */
 export async function fetchTicketStats(params) {
-    console.log('[ticketApi] fetchTicketStats request params:', params);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketStats request params:', params);
     const response = await api.get('/api/ticket-stats/', { params });
-    console.log('[ticketApi] fetchTicketStats response:', response.data);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketStats response:', response.data);
     return response.data;
 }
 
@@ -265,9 +257,9 @@ export async function fetchTicketStats(params) {
  * Returns { topics: [{ topic, total, negative, percent_negative }] }
  */
 export async function fetchTopicChartData(params) {
-    console.log('[ticketApi] fetchTopicChartData request params:', params);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchTopicChartData request params:', params);
     const response = await api.get('/api/topic-chart-data/', { params });
-    console.log('[ticketApi] fetchTopicChartData response:', response.data);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchTopicChartData response:', response.data);
     return response.data;
 }
 
@@ -277,9 +269,9 @@ export async function fetchTopicChartData(params) {
  * Returns { segments, dates, data, totals }
  */
 export async function fetchVipCsatData(params) {
-    console.log('[ticketApi] fetchVipCsatData request params:', params);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchVipCsatData request params:', params);
     const response = await api.get('/api/vip-csat-data/', { params });
-    console.log('[ticketApi] fetchVipCsatData response:', response.data);
+    if (import.meta.env.DEV) console.log('[ticketApi] fetchVipCsatData response:', response.data);
     return response.data;
 }
 
