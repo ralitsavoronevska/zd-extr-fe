@@ -47,7 +47,14 @@ export function useTicketTableData(filterState, dataTableRef) {
                 console.group('[useTicketTableData] mocked mode — extractFilterParams()');
                 console.log('Multiselects:', { brand: params.brand, topic: params.topic, vip_level: params.vip_level, customer_email: params.customer_email, agent_email: params.agent_email, _chatTagsString: params._chatTagsString });
                 console.log('Single-selects:', { csat_score: params.csat_score, sentiment: params.sentiment });
-                console.log('Text:', { globalFilter: params.globalFilter, ticketid: params.ticketid, sentiment_reason: params.sentiment_reason, chat_transcript: params.chat_transcript, email_transcript: params.email_transcript, summary: params.summary });
+                console.log('Text:', {
+                    globalFilter: params.globalFilter,
+                    ticketid: params.ticketid,
+                    sentiment_reason: params.sentiment_reason,
+                    chat_transcript: params.chat_transcript,
+                    email_transcript: params.email_transcript,
+                    summary: params.summary
+                });
                 console.log('Dates:', { startDate: params.startDate, endDate: params.endDate, startedAtStart: params.startedAtStart, startedAtEnd: params.startedAtEnd, updatedAtStart: params.updatedAtStart, updatedAtEnd: params.updatedAtEnd });
                 console.groupEnd();
             }
@@ -94,9 +101,23 @@ export function useTicketTableData(filterState, dataTableRef) {
         const filterParams = extractFilterParams();
         if (import.meta.env.DEV) {
             console.group('[useTicketTableData] API mode — fetchData()');
-            console.log('Multiselects:', { brand: filterParams.brand, topic: filterParams.topic, vip_level: filterParams.vip_level, customer_email: filterParams.customer_email, agent_email: filterParams.agent_email, _chatTagsString: filterParams._chatTagsString });
+            console.log('Multiselects:', {
+                brand: filterParams.brand,
+                topic: filterParams.topic,
+                vip_level: filterParams.vip_level,
+                customer_email: filterParams.customer_email,
+                agent_email: filterParams.agent_email,
+                _chatTagsString: filterParams._chatTagsString
+            });
             console.log('Single-selects:', { csat_score: filterParams.csat_score, sentiment: filterParams.sentiment });
-            console.log('Text:', { globalFilter: filterParams.globalFilter, ticketid: filterParams.ticketid, sentiment_reason: filterParams.sentiment_reason, chat_transcript: filterParams.chat_transcript, email_transcript: filterParams.email_transcript, summary: filterParams.summary });
+            console.log('Text:', {
+                globalFilter: filterParams.globalFilter,
+                ticketid: filterParams.ticketid,
+                sentiment_reason: filterParams.sentiment_reason,
+                chat_transcript: filterParams.chat_transcript,
+                email_transcript: filterParams.email_transcript,
+                summary: filterParams.summary
+            });
             console.log('Dates:', { startDate: filterParams.startDate, endDate: filterParams.endDate });
             console.log('Pagination:', { page: lazyParams.value.page, limit: lazyParams.value.limit, sortField: lazyParams.value.sortField, sortOrder: lazyParams.value.sortOrder });
             console.groupEnd();
@@ -109,7 +130,23 @@ export function useTicketTableData(filterState, dataTableRef) {
             sortOrder: lazyParams.value.sortOrder
         });
 
-        await Promise.all([ticketDataStore.fetchTickets(listParams), tableStore.fetchAllAggregations(filterParams)]);
+        if (filterParams.ticketid) {
+            // ticketid lookup — backend doesn't honor ticketid on stats/chart/vip endpoints.
+            // Fetch the single ticket + filter-options only, then compute aggregations client-side.
+            await Promise.all([ticketDataStore.fetchTickets(listParams), tableStore.fetchFilterOptionsOnly(filterParams)]);
+            tableStore.setSingleTicketAggregations(ticketDataStore.tickets[0] ?? null);
+        } else {
+            await Promise.all([ticketDataStore.fetchTickets(listParams), tableStore.fetchAllAggregations(filterParams)]);
+
+            // Edge case: the user applied a filter that isn't honored by the aggregation
+            // endpoints (e.g. customer_email, topic, brand on /api/vip-csat-data/) so the
+            // list endpoint narrowed down to 1 ticket but stats/chart/vip still reflect the
+            // broader dataset. Override with single-ticket aggregations so all widgets stay
+            // consistent with the main table.
+            if (ticketDataStore.totalCount === 1 && ticketDataStore.tickets.length === 1) {
+                tableStore.setSingleTicketAggregations(ticketDataStore.tickets[0]);
+            }
+        }
     }
 
     function debouncedFetchData() {
@@ -166,20 +203,21 @@ export function useTicketTableData(filterState, dataTableRef) {
          * Smart computed: if this field has an active selection, show full options
          * (so the user can deselect). Otherwise, show narrowed options.
          */
-        const smartOptions = (apiKey, filterKey) => computed(() => {
-            const filterVal = filters.value[filterKey]?.value;
-            const isActive = Array.isArray(filterVal) ? filterVal.length > 0 : filterVal != null && filterVal !== '';
+        const smartOptions = (apiKey, filterKey) =>
+            computed(() => {
+                const filterVal = filters.value[filterKey]?.value;
+                const isActive = Array.isArray(filterVal) ? filterVal.length > 0 : filterVal != null && filterVal !== '';
 
-            if (isActive) {
-                const opts = sorted(tableStore.filterOptions, apiKey);
-                if (import.meta.env.DEV) console.log(`[useTicketTableData] API dropdown "${apiKey}": ${opts.length} options (FULL — field is active)`);
+                if (isActive) {
+                    const opts = sorted(tableStore.filterOptions, apiKey);
+                    if (import.meta.env.DEV) console.log(`[useTicketTableData] API dropdown "${apiKey}": ${opts.length} options (FULL — field is active)`);
+                    return opts;
+                }
+
+                const opts = sorted(tableStore.narrowedFilterOptions, apiKey);
+                if (import.meta.env.DEV) console.log(`[useTicketTableData] API dropdown "${apiKey}": ${opts.length} options (NARROWED — from filtered time period)`);
                 return opts;
-            }
-
-            const opts = sorted(tableStore.narrowedFilterOptions, apiKey);
-            if (import.meta.env.DEV) console.log(`[useTicketTableData] API dropdown "${apiKey}": ${opts.length} options (NARROWED — from filtered time period)`);
-            return opts;
-        });
+            });
 
         availableTopics = smartOptions('topic', 'topic');
         availableBrands = smartOptions('brand', 'brand');
@@ -192,12 +230,25 @@ export function useTicketTableData(filterState, dataTableRef) {
     }
 
     // ── Export ──
+    // Disabled when ticketid is set — the export endpoint ignores the ticketid param,
+    // so the download would contain every row in the date range instead of the single
+    // ticket the user sees in the table.
+    const isExportDisabled = computed(() => {
+        if (USE_MOCKED) return false;
+        return !!filters.value.ticketid?.value;
+    });
+
     const { exportToCSV } = USE_MOCKED
         ? useCsvExport(dataTableRef, mockedFilteredTickets, formatDate)
         : {
               exportToCSV: async () => {
-                  const params = buildExportParams(extractFilterParams());
-                  await exportTicketsCsv(params);
+                  if (isExportDisabled.value) return;
+                  try {
+                      const params = buildExportParams(extractFilterParams());
+                      await exportTicketsCsv(params);
+                  } catch (err) {
+                      console.error('CSV export failed:', err);
+                  }
               }
           };
 
@@ -245,13 +296,25 @@ export function useTicketTableData(filterState, dataTableRef) {
     });
 
     return {
-        isLoading, isAdmin, maskEmail,
-        tableData, totalRecords,
-        availableTopics, availableBrands, availableVipLevels,
-        availableCustomerEmails, availableAgentEmails, availableChatTags,
-        availableSentiments, availableCsatScores,
+        isLoading,
+        isAdmin,
+        maskEmail,
+        tableData,
+        totalRecords,
+        availableTopics,
+        availableBrands,
+        availableVipLevels,
+        availableCustomerEmails,
+        availableAgentEmails,
+        availableChatTags,
+        availableSentiments,
+        availableCsatScores,
         exportToCSV,
-        onPage, onSort, onFilter,
-        setQuickDateFilter, clearFilter
+        isExportDisabled,
+        onPage,
+        onSort,
+        onFilter,
+        setQuickDateFilter,
+        clearFilter
     };
 }

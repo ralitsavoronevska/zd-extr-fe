@@ -50,6 +50,7 @@ const {
     availableSentiments,
     availableCsatScores,
     exportToCSV,
+    isExportDisabled,
     onPage,
     onSort,
     onFilter,
@@ -90,9 +91,11 @@ const emailColumns = computed(() => [
             :paginatorPosition="'both'"
             v-model:filters="filters"
             filterDisplay="menu"
-            :globalFilterFields="USE_MOCKED
-                ? ['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', '_chatTagsString', 'chat_transcript', 'email_transcript', 'sentiment', 'sentiment_reason', 'summary']
-                : ['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment', 'sentiment_reason', 'summary']"
+            :globalFilterFields="
+                USE_MOCKED
+                    ? ['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', '_chatTagsString', 'chat_transcript', 'email_transcript', 'sentiment', 'sentiment_reason', 'summary']
+                    : ['ticketid', 'topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment', 'sentiment_reason', 'summary']
+            "
             responsiveLayout="scroll"
             showGridlines
             @page="onPage"
@@ -113,7 +116,16 @@ const emailColumns = computed(() => [
                             <Button :class="`dt-period-filters ${activeQuickFilter === '3 months' ? 'dt-period-active' : ''}`" label="Last 3 Months" outlined size="small" @click="setQuickDateFilter('3 months')" aria-label="Filter by last 3 months" />
                         </div>
                     </div>
-                    <Button type="button" icon="pi pi-download" label="Export to CSV" outlined @click="exportToCSV()" aria-label="Export filtered results to CSV" />
+                    <Button
+                        type="button"
+                        icon="pi pi-download"
+                        label="Export to CSV"
+                        outlined
+                        :disabled="isExportDisabled"
+                        :title="isExportDisabled ? 'CSV export is not available when filtering by Ticket ID' : ''"
+                        @click="exportToCSV()"
+                        aria-label="Export filtered results to CSV"
+                    />
                     <IconField>
                         <InputIcon>
                             <i class="pi pi-search" />
@@ -126,7 +138,7 @@ const emailColumns = computed(() => [
             <template #empty>No tickets found.</template>
             <template #loading>Loading tickets... Please wait.</template>
 
-            <Column header="Date" filterField="timestamp" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 10rem">
+            <Column header="Date" filterField="timestamp" :showFilterMatchModes="false" :showFilterOperator="false" :showAddButton="false" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 10rem">
                 <template #body="{ data }">
                     {{ formatDate(data.timestamp) }}
                 </template>
@@ -138,7 +150,18 @@ const emailColumns = computed(() => [
                 </template>
             </Column>
 
-            <Column v-for="col in dateColumns" :key="col.field" :header="col.header" :filterField="col.field" dataType="date" filterMenuClass="my-date-filter-menu" style="min-width: 15rem">
+            <Column
+                v-for="col in dateColumns"
+                :key="col.field"
+                :header="col.header"
+                :filterField="col.field"
+                :showFilterMatchModes="false"
+                :showFilterOperator="false"
+                :showAddButton="false"
+                dataType="date"
+                filterMenuClass="my-date-filter-menu"
+                style="min-width: 15rem"
+            >
                 <template #body="{ data }">
                     {{ data[col.field] ? formatDate(data[col.field], 'en-US', true) : '—' }}
                 </template>
@@ -157,11 +180,11 @@ const emailColumns = computed(() => [
                     </div>
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableTopics" placeholder="Any Topic" display="chip" :filter="true" showClear @change="filterCallback()" />
+                    <MultiSelect v-model="filterModel.value" :options="availableTopics" placeholder="Filter by Topic" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>
 
-            <Column header="Ticket ID" field="ticketid" filterField="ticketid" style="min-width: 10rem">
+            <Column header="Ticket ID" field="ticketid" :showFilterMatchModes="false" filterField="ticketid" style="min-width: 10rem">
                 <template #body="{ data }">
                     {{ data.ticketid }}
                 </template>
@@ -177,7 +200,7 @@ const emailColumns = computed(() => [
                     </div>
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableBrands" placeholder="Any Brand" display="chip" :filter="true" showClear @change="filterCallback()" />
+                    <MultiSelect v-model="filterModel.value" :options="availableBrands" placeholder="Filter by Brand" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>
 
@@ -188,7 +211,7 @@ const emailColumns = computed(() => [
                     </div>
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableVipLevels" placeholder="Any VIP Level" display="chip" :filter="true" showClear @change="filterCallback()" />
+                    <MultiSelect v-model="filterModel.value" :options="availableVipLevels" placeholder="Filter by VIP Level" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>
 
@@ -197,7 +220,7 @@ const emailColumns = computed(() => [
                     {{ data[col.field] === 'none' ? '—' : data[col.field] }}
                 </template>
                 <template v-if="col.filterable" #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="col.options" :placeholder="`Any ${col.header}`" display="chip" :filter="true" showClear @change="filterCallback()" />
+                    <MultiSelect v-model="filterModel.value" :options="col.options" :placeholder="`Filter by ${col.header}`" display="chip" :filter="true" showClear @change="filterCallback()" />
                 </template>
             </Column>
 
@@ -206,7 +229,7 @@ const emailColumns = computed(() => [
                     <Tag :value="data.csat_score" severity="contrast" />
                 </template>
                 <template #filter="{ filterModel }">
-                    <Select v-model="filterModel.value" :options="availableCsatScores" placeholder="Any CSAT Score" showClear>
+                    <Select v-model="filterModel.value" :options="availableCsatScores" placeholder="Filter by CSAT Score" showClear>
                         <template #option="slotProps">
                             <Tag :value="slotProps.option" />
                         </template>
@@ -221,7 +244,7 @@ const emailColumns = computed(() => [
                     </div>
                 </template>
                 <template #filter="{ filterModel, filterCallback }">
-                    <MultiSelect v-model="filterModel.value" :options="availableChatTags" placeholder="Any Chat Tag" display="chip" :filter="true" showClear @change="filterCallback()">
+                    <MultiSelect v-model="filterModel.value" :options="availableChatTags" placeholder="Filter by Chat Tag" display="chip" :filter="true" showClear @change="filterCallback()">
                         <template #option="slotProps">
                             <Tag :value="slotProps.option" />
                         </template>
@@ -229,7 +252,7 @@ const emailColumns = computed(() => [
                 </template>
             </Column>
 
-            <Column v-for="col in transcriptColumns" :key="col.field" :header="col.header" :field="col.field" :filterField="col.field" :style="{ minWidth: col.minWidth }">
+            <Column v-for="col in transcriptColumns" :key="col.field" :header="col.header" :field="col.field" :filterField="col.field" :showFilterMatchModes="false" :style="{ minWidth: col.minWidth }">
                 <template #body="{ data }">
                     <template v-if="USE_MOCKED">
                         <Button
@@ -259,7 +282,7 @@ const emailColumns = computed(() => [
                     </template>
                 </template>
                 <template #filter="{ filterModel }">
-                    <InputText v-model="filterModel.value" type="text" :placeholder="`Any ${col.header}`" />
+                    <InputText v-model="filterModel.value" type="text" placeholder="Filter by keywords" />
                 </template>
             </Column>
 
@@ -268,7 +291,7 @@ const emailColumns = computed(() => [
                     <Tag :value="data.sentiment" severity="help" />
                 </template>
                 <template #filter="{ filterModel }">
-                    <Select v-model="filterModel.value" :options="availableSentiments" placeholder="Any Sentiment" showClear>
+                    <Select v-model="filterModel.value" :options="availableSentiments" placeholder="Filter by Sentiment" showClear>
                         <template #option="slotProps">
                             <Tag :value="slotProps.option" />
                         </template>
@@ -276,21 +299,21 @@ const emailColumns = computed(() => [
                 </template>
             </Column>
 
-            <Column header="Sentiment Reason" field="sentiment_reason" filterField="sentiment_reason" style="min-width: 14rem">
+            <Column header="Sentiment Reason" field="sentiment_reason" filterField="sentiment_reason" :showFilterMatchModes="false" style="min-width: 14rem">
                 <template #body="{ data }">
                     {{ data.sentiment_reason || '—' }}
                 </template>
                 <template #filter="{ filterModel }">
-                    <InputText v-model="filterModel.value" type="text" placeholder="Any Sentiment Reason" />
+                    <InputText v-model="filterModel.value" type="text" placeholder="Filter by keywords" />
                 </template>
             </Column>
 
-            <Column header="Summary" field="summary" filterField="summary" style="min-width: 45rem">
+            <Column header="Summary" field="summary" filterField="summary" :showFilterMatchModes="false" style="min-width: 45rem">
                 <template #body="{ data }">
                     {{ data.summary || '—' }}
                 </template>
                 <template #filter="{ filterModel }">
-                    <InputText v-model="filterModel.value" type="text" placeholder="Any Summary" />
+                    <InputText v-model="filterModel.value" type="text" placeholder="Filter by keywords" />
                 </template>
             </Column>
         </DataTable>

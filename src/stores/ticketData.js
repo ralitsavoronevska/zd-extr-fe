@@ -184,6 +184,31 @@ export const useTicketDataStore = defineStore('ticketData', () => {
         isLoading.value = true;
         fetchError.value = null;
         try {
+            // The list endpoint ignores the `ticketid` query param — route through the
+            // detail endpoint (/api/ticket-summaries/{id}/) for exact-match lookup,
+            // then wrap the single result in the paginated list shape the DataTable expects.
+            if (params.ticketid) {
+                try {
+                    const { fetchTicketDetail } = await import('@/services/ticketApi');
+                    const data = await fetchTicketDetail(params.ticketid);
+                    const normalized = normalizeApiRecord(data);
+                    // Detail endpoint returns the actual transcript texts (not the has_* booleans);
+                    // derive the booleans from content presence so the "View" buttons render correctly.
+                    normalized.has_chat_transcript = !!normalized.chat_transcript;
+                    normalized.has_email_transcript = !!normalized.email_transcript;
+                    tickets.value = [normalized];
+                    totalCount.value = 1;
+                } catch (err) {
+                    if (err?.response?.status === 404) {
+                        tickets.value = [];
+                        totalCount.value = 0;
+                    } else {
+                        throw err;
+                    }
+                }
+                return;
+            }
+
             const { fetchTicketList } = await import('@/services/ticketApi');
             const data = (await fetchTicketList(params)) ?? {};
             tickets.value = (data.results || []).map(normalizeApiRecord);

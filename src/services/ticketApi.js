@@ -34,7 +34,7 @@ function addExtendedDateParams(params, filters) {
     if (filters.updatedAtEnd) params.updated_at_lt = toLocalISOString(filters.updatedAtEnd);
 }
 
-/** All multi-value attribute filters (brand, topic, vip_level, agent_email, customer_email, chat_tags). */
+/** All attribute filters (brand, topic, vip_level, agent/customer email, chat_tags, csat_score, sentiment, ticketid). */
 function addAllAttributeFilters(params, filters) {
     const brand = multiParam(filters.brand);
     if (brand) params.brand = brand;
@@ -56,6 +56,7 @@ function addAllAttributeFilters(params, filters) {
 
     if (filters.csat_score) params.csat_score = filters.csat_score;
     if (filters.sentiment) params.sentiment = filters.sentiment;
+    if (filters.ticketid) params.ticketid = filters.ticketid;
 }
 
 /** Narrowed attribute filters shared by topic-chart and export endpoints (no agent/customer email, no chat_tags). */
@@ -96,26 +97,30 @@ export function buildTicketListParams(filters = {}, lazyParams = {}) {
     addExtendedDateParams(params, filters);
     addAllAttributeFilters(params, filters);
 
-    // Pagination
-    if (lazyParams.page > 0) params.page = lazyParams.page;
-    if (lazyParams.rows > 0) params.page_size = lazyParams.rows;
+    // ticketid is an exact-match lookup routed through /api/ticket-summaries/{id}/ —
+    // pagination/ordering/search/text-contains are all ignored by the detail endpoint,
+    // so skip them entirely to keep the URL clean.
+    const isTicketIdLookup = !!filters.ticketid;
 
-    // Sorting — prefix with "-" for descending
-    if (lazyParams.sortField) {
-        params.ordering = lazyParams.sortOrder === -1 ? `-${lazyParams.sortField}` : lazyParams.sortField;
+    if (!isTicketIdLookup) {
+        // Pagination
+        if (lazyParams.page > 0) params.page = lazyParams.page;
+        if (lazyParams.rows > 0) params.page_size = lazyParams.rows;
+
+        // Sorting — prefix with "-" for descending
+        if (lazyParams.sortField) {
+            params.ordering = lazyParams.sortOrder === -1 ? `-${lazyParams.sortField}` : lazyParams.sortField;
+        }
+
+        // Global search
+        if (filters.globalFilter) params.search = filters.globalFilter;
+
+        // Text-contains as booleans
+        addBooleanContainsFilters(params, filters);
+
+        // Sentiment reason (text, not boolean)
+        if (filters.sentiment_reason) params.sentiment_reason = filters.sentiment_reason;
     }
-
-    // Global search
-    if (filters.globalFilter) params.search = filters.globalFilter;
-
-    // Text-contains as booleans
-    addBooleanContainsFilters(params, filters);
-
-    // Sentiment reason (text, not boolean)
-    if (filters.sentiment_reason) params.sentiment_reason = filters.sentiment_reason;
-
-    // Ticket ID exact match
-    if (filters.ticketid) params.ticketid = filters.ticketid;
 
     return params;
 }
@@ -292,11 +297,14 @@ export async function exportTicketsCsv(params) {
     const filename = (filenameStarMatch?.[1] && decodeURIComponent(filenameStarMatch[1])) || filenameMatch?.[1] || `tickets-${new Date().toISOString().slice(0, 10)}.csv`;
 
     const url = URL.createObjectURL(response.data);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
 }

@@ -36,13 +36,13 @@
 
 1. **Dual-mode architecture (mock vs API)** — Controlled by `VITE_USE_MOCKED_DATA` env var. **Mock mode**: loads all data client-side from JSON, filters/aggregates in the browser. **API mode**: server-side pagination, filtering, and aggregation via 7 REST endpoints (see API Endpoints section). Every composable, store, and view branches on `USE_MOCKED` to use the correct data path.
 
-2. **Pinia `ticketDataStore` in `stores/ticketData.js`** — A setup-style Pinia store with two code paths. **Mock mode**: loads all data once, IDB cache with 1-hour TTL, batched `processRecords`. **API mode**: `fetchTickets(params)` calls `GET /api/ticket-conversation-summaries/` per page/filter change; `fetchTicketById(id)` calls `GET /api/ticket-summaries/{ticketid}/` for transcript detail. `lazyInit()` dispatches to the correct mode. `tickets` (API) and `mockedFullProcessedTickets` (mock) use `shallowRef` to avoid deep-reactivity overhead.
+2. **Pinia `ticketDataStore` in `stores/ticketData.js`** — A setup-style Pinia store with two code paths. **Mock mode**: loads all data once, IDB cache with 1-hour TTL, batched `processRecords`. **API mode**: `fetchTickets(params)` calls `GET /api/ticket-conversation-summaries/` per page/filter change; `fetchTicketById(id)` calls `GET /api/ticket-summaries/{ticketid}/` for transcript detail. **Ticket ID filter special case**: when `params.ticketid` is set, `fetchTickets` routes through the detail endpoint `/api/ticket-summaries/{id}/` (wrapping the single result as `{count: 1, results: [ticket]}`) because the list endpoint doesn't honor the `ticketid` query param. 404s are handled gracefully as an empty result. `lazyInit()` dispatches to the correct mode. `tickets` (API) and `mockedFullProcessedTickets` (mock) use `shallowRef` to avoid deep-reactivity overhead.
 
 3. **Batched `processRecords` to prevent main-thread blocking (mock mode only)** — 30k tickets are processed in batches of 150. Between batches, `scheduler.yield()` (Chrome 129+) or `setTimeout(0)` hands control back to the browser, keeping each task under the 50ms long-task threshold and reducing Lighthouse TBT to near-zero.
 
 4. **Lazy route loading + async components** — All 4 routes use `() => import(...)`. `TableDoc`, `VipTableDoc`, and `ChartDoc` use `defineAsyncComponent()`. This eliminates unused-JS on the login page and defers heavy component parsing until the home route is active.
 
-5. **Pinia `tableStore` as the data bridge** — **Mock mode**: `TableDoc.vue` writes client-side filtered results to `tableStore.mockedFilteredTickets`; `ChartDoc.vue` reads `mockedTopicStats`; `VipTableDoc.vue` reads `mockedFilteredTickets`. **API mode**: `tableStore` holds server responses — `filterOptions` (from `/api/ticket-filter-options/`), `stats` (from `/api/ticket-stats/`), `topicChartData` (from `/api/topic-chart-data/`), `vipCsatData` (from `/api/vip-csat-data/`). `fetchAllAggregations(filters)` fetches all 4 in parallel. No prop drilling.
+5. **Pinia `tableStore` as the data bridge** — **Mock mode**: `TableDoc.vue` writes client-side filtered results to `tableStore.mockedFilteredTickets`; `ChartDoc.vue` reads `mockedTopicStats`; `VipTableDoc.vue` reads `mockedFilteredTickets`. **API mode**: `tableStore` holds server responses — `filterOptions` (from `/api/ticket-filter-options/`), `stats` (from `/api/ticket-stats/`), `topicChartData` (from `/api/topic-chart-data/`), `vipCsatData` (from `/api/vip-csat-data/`). `fetchAllAggregations(filters)` fetches all 5 endpoints (full + narrowed filter options, stats, chart, vip) in parallel. **Ticket ID filter branch**: when filtering by ticketid, `fetchFilterOptionsOnly(filters)` fetches only the two filter-options endpoints and `setSingleTicketAggregations(ticket)` populates `stats`/`topicChartData`/`vipCsatData` client-side from the single fetched ticket — the backend ignores `ticketid` on those aggregation endpoints. A generation counter discards stale responses when the user changes filters faster than the server responds. No prop drilling.
 
 6. **Faceted filter options** — **Mock mode**: `useFacetedFilterOptions` composable with single-pass bitmask aggregation (client-side). **API mode**: `GET /api/ticket-filter-options/` returns distinct values server-side with the same faceted logic — applying all active filters except the field's own. Response shape: `{ topic: [], brand: [], vip_level: [], customer_email: [], agent_email: [], chat_tags: [], sentiment: [], csat_score: [] }`.
 
@@ -126,8 +126,8 @@ Each endpoint accepts a different subset of filter params. All share `timestamp_
 
 | Endpoint | Method | Purpose | Extra Params |
 |---|---|---|---|
-| `/api/ticket-conversation-summaries/` | GET | Paginated ticket list (no transcripts — returns `has_chat_transcript`/`has_email_transcript` booleans) | `page`, `page_size`, `ordering`, `search`, `ticketid`, `summary_contains` (bool), `chat_transcript_contains` (bool), `email_transcript_contains` (bool), `sentiment_reason` |
-| `/api/ticket-summaries/{ticketid}/` | GET | Single ticket detail WITH full transcripts | — |
+| `/api/ticket-conversation-summaries/` | GET | Paginated ticket list (no transcripts — returns `has_chat_transcript`/`has_email_transcript` booleans) | `page`, `page_size`, `ordering`, `search`, `summary_contains` (bool), `chat_transcript_contains` (bool), `email_transcript_contains` (bool), `sentiment_reason` |
+| `/api/ticket-summaries/{ticketid}/` | GET | Single ticket detail WITH full transcripts. Used both for the "View" transcript button AND for the ticketid filter (the list endpoint doesn't honor `?ticketid=`) | — |
 | `/api/ticket-filter-options/` | GET | Distinct values for dropdown filters (faceted) | — |
 | `/api/ticket-stats/` | GET | Aggregated stats for StatsWidget | — |
 | `/api/topic-chart-data/` | GET | Topic distribution for charts (max 100, sorted by total desc) | — |
@@ -135,13 +135,13 @@ Each endpoint accepts a different subset of filter params. All share `timestamp_
 | `/api/ticket-summaries/export/` | GET | Streaming CSV (no pagination) | `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` only (no text-contains, no agent/customer email, no chat_tags, no started_at/updated_at) |
 
 Param builders in `src/services/ticketApi.js`: `buildTicketListParams()`, `buildFilterOptionsParams()`, `buildNarrowedFilterOptionsParams()`, `buildStatsParams()`, `buildTopicChartParams()`, `buildVipCsatParams()`, `buildExportParams()`. Each builder sends only the params its endpoint accepts:
-- `buildTicketListParams` — full set: all dates, all attributes, pagination, ordering, search, ticketid, sentiment_reason, boolean text-contains
+- `buildTicketListParams` — full set: all dates, all attributes, pagination, ordering, search, sentiment_reason, boolean text-contains. **Special case**: when `filters.ticketid` is set, pagination/ordering/search/text-contains are all skipped because the request is routed to `/api/ticket-summaries/{id}/` which ignores query params entirely.
 - `buildFilterOptionsParams` — `timestamp_gte/lt` only (returns unfiltered distinct values for the active filter's own dropdown)
-- `buildNarrowedFilterOptionsParams` — `timestamp_gte/lt` + all attribute filters (returns narrowed distinct values for inactive filter dropdowns)
-- `buildStatsParams` — `timestamp_gte/lt` + all attribute filters
+- `buildNarrowedFilterOptionsParams` — `timestamp_gte/lt` + all attribute filters incl. ticketid (returns narrowed distinct values for inactive filter dropdowns)
+- `buildStatsParams` — `timestamp_gte/lt` + all attribute filters incl. ticketid
 - `buildTopicChartParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (omits `agent_email`/`customer_email`/`chat_tags`/`started_at`/`updated_at`)
 - `buildVipCsatParams` — `timestamp_gte/lt` + `vip_level` + `csat_score` only
-- `buildExportParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (same subset as topic chart)
+- `buildExportParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (same subset as topic chart). CSV export is **disabled in the UI** when `ticketid` is set because the export endpoint ignores the ticketid param.
 
 ### Backend requirement: server-side customer email masking (SECURITY)
 
@@ -317,6 +317,9 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 - Multiselect filters use `FilterService.register('containsAny', ...)` — confirm registration runs before DataTable mounts (mock mode)
 - Faceted options (mock mode): check whether the field is in `baseFilterParams` or `activeMultiselects` — wrong bucket means it won't narrow the facet correctly
 - Check that normalized data uses `'none'` (string) for empty fields, not `null`/`''`
+- **Sentiment / CSAT single-select columns** — have `:showFilterMatchModes="false"` locked to `EQUALS`. Without this, PrimeVue's filter menu lets the user switch to `CONTAINS`, which would match `"very negative"` when filtering for `"negative"` (substring).
+- **Ticket ID filter (API mode)** — routes through `/api/ticket-summaries/{id}/` (detail endpoint), NOT the list endpoint. The list endpoint ignores the `ticketid` query param. If filtering doesn't work, check Network tab for the detail endpoint call.
+- **Date filter "Clear" button** — PrimeVue's built-in Clear replaces the `constraints` array with a single empty constraint, which would break the From/To DatePicker bindings. A watcher in `useTicketFilters.js` restores the `[DATE_AFTER, DATE_BEFORE]` shape when length drops below 2.
 
 ### Auth issues
 - Auth state: `useAuthStore()` — inspect `isAuthenticated`, `user`, `role`, `isLoading` in Vue DevTools
@@ -330,6 +333,10 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 - Django JWT: `authApi.js` interceptor auto-retries on 401 using `REFRESH_ENDPOINT` constant. If looping, check the refresh endpoint
 - Firebase errors: `firebase/index.js` validates required env vars (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`) on startup and logs missing ones. Verify all `VITE_FIREBASE_*` env vars match the Firebase console project settings
 - See `FIREBASE+FIRESTORE.md` for full setup guide (adding users, Firestore structure, security rules)
+
+### Transcripts
+- **Email transcripts containing "Conversation with" are sanitized to empty string** during normalization (`sanitizeEmailTranscript` in `ticketData.js`). These are chat-session metadata lines, not actual email transcripts. When sanitized to empty, `has_email_transcript` is also flipped to `false` so the "View" button doesn't render.
+- **Transcript dialog auto-closes on empty content** — if the fetched transcript is empty after sanitization (happens in API mode when the list endpoint flags `has_email_transcript: true` but the detail endpoint returns a "Conversation with" header), `useTranscriptDialog` closes the dialog instead of showing an empty popup. The real fix is on the backend — it should set `has_email_transcript = false` for these entries.
 
 ### Dark mode not toggling
 - Check that `useLayout().toggleDarkMode()` is called in `AppTopbar.vue`
@@ -373,6 +380,9 @@ API proxy (dev only): `/api/` → `VITE_API_URL` or `http://13.53.64.132` (confi
 - **Data is already normalized** by `processRecords` (mock) or `normalizeApiRecord` (API) — no need for defensive `|| 'none'` / `|| 'No Data'` checks downstream.
 - **`topic` is a multiselect filter** — its value is `string[]`, not `string|null`. Mock mode: lives in `activeMultiselects` in `useFacetedFilterOptions`. API mode: sent as array via `addAllAttributeFilters` in `ticketApi.js`.
 - **API ticket list does NOT return transcripts** — it returns `has_chat_transcript` / `has_email_transcript` booleans. Full transcripts are fetched on-demand via `GET /api/ticket-summaries/{ticketid}/`.
+- **Ticket ID filter uses the detail endpoint** — filtering by `ticketid` in API mode routes to `/api/ticket-summaries/{id}/`, NOT the list endpoint (backend doesn't honor `?ticketid=`). `stats`/`topicChartData`/`vipCsatData` are computed client-side from the single fetched ticket via `tableStore.setSingleTicketAggregations()`. The CSV export button is disabled in this state.
+- **Single-result widget fallback (API mode)** — when a non-ticketid filter narrows the list to exactly 1 ticket (`totalCount === 1`), [useTicketTableData.js](src/composables/useTicketTableData.js) silently overrides `stats`/`topicChartData`/`vipCsatData` via `tableStore.setSingleTicketAggregations()` after the normal `fetchAllAggregations()` call. This keeps StatsWidget / ChartDoc / VipTableDoc consistent with the table when the user applies a filter that the aggregation endpoints don't honor (e.g. `customer_email`, `agent_email`, `chat_tags` on `/api/vip-csat-data/`, which would otherwise show broader totals than the single visible row).
 - **`!important` inside CSS `var()` is invalid** — silently ignored by browsers. Override PrimeVue tokens by redefining the CSS variable, not with `!important` inside the value.
 - **Chart topic limit** — `useChartAggregations.js` caps charts at `TOP_TOPICS_LIMIT = 100` topics (sorted by total desc). Chrome's max canvas width is 32,767px; at 48px/bar, exceeding ~682 bars silently breaks the canvas. 100 is a safe, readable default.
+- **Chart y-axis locks (`ChartDoc.vue`)** — the `% Negative Chats per Topic` line chart is locked to `min: 0, max: 100` with a `%` tick suffix; the `Number of Chats` bar chart uses `beginAtZero: true, suggestedMax: 1, precision: 0`. Without these, Chart.js auto-scales to `-1 → 1` (or fractional ticks) when every value is 0 or when there's a single row — which is common on narrow filters.
 - **Git remote**: `origin` = `rvoronevska-sbt/zd-extr-fe`. Single repo — push to `origin`.

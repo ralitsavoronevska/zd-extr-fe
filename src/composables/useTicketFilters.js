@@ -1,5 +1,5 @@
 import { FilterMatchMode, FilterOperator } from '@primevue/core/api';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 export const PAGE_SIZE_DEFAULT = 5;
 export const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
@@ -90,10 +90,13 @@ export function useTicketFilters() {
     }
 
     // ── Date computed getters/setters for template v-model ──
-    const dateComputed = (field, index) => computed({
-        get: () => filters.value[field]?.constraints?.[index]?.value ?? null,
-        set: (val) => { if (filters.value[field]?.constraints?.[index]) filters.value[field].constraints[index].value = val; }
-    });
+    const dateComputed = (field, index) =>
+        computed({
+            get: () => filters.value[field]?.constraints?.[index]?.value ?? null,
+            set: (val) => {
+                if (filters.value[field]?.constraints?.[index]) filters.value[field].constraints[index].value = val;
+            }
+        });
 
     const fromDate = dateComputed('timestamp', 0);
     const toDate = dateComputed('timestamp', 1);
@@ -101,6 +104,26 @@ export function useTicketFilters() {
     const startedAtTo = dateComputed('started_at', 1);
     const updatedAtFrom = dateComputed('updated_at', 0);
     const updatedAtTo = dateComputed('updated_at', 1);
+
+    // ── Keep date-filter constraints as [DATE_AFTER, DATE_BEFORE] ──
+    // PrimeVue's "Clear" button inside the filter menu popover replaces the
+    // constraints array with a single empty constraint, which causes the "To"
+    // DatePicker to disappear and an "+ Add Rule" button to appear. This watcher
+    // restores the 2-constraint shape immediately so both pickers stay visible.
+    const ensureDateConstraints = (field) => {
+        const filter = filters.value[field];
+        if (!filter?.constraints) return;
+        if (filter.constraints.length >= 2) return;
+        const expected = [FilterMatchMode.DATE_AFTER, FilterMatchMode.DATE_BEFORE];
+        while (filter.constraints.length < 2) {
+            const idx = filter.constraints.length;
+            filter.constraints.push({ value: null, matchMode: expected[idx] });
+        }
+    };
+
+    watch(() => filters.value.timestamp?.constraints?.length, () => ensureDateConstraints('timestamp'));
+    watch(() => filters.value.started_at?.constraints?.length, () => ensureDateConstraints('started_at'));
+    watch(() => filters.value.updated_at?.constraints?.length, () => ensureDateConstraints('updated_at'));
 
     // ── Quick date filter — modifies state only, caller handles fetch ──
     function applyQuickDateFilter(period) {
@@ -152,9 +175,17 @@ export function useTicketFilters() {
     }
 
     return {
-        filters, lazyParams, activeQuickFilter,
+        filters,
+        lazyParams,
+        activeQuickFilter,
         extractFilterParams,
-        fromDate, toDate, startedAtFrom, startedAtTo, updatedAtFrom, updatedAtTo,
-        applyQuickDateFilter, resetFilters
+        fromDate,
+        toDate,
+        startedAtFrom,
+        startedAtTo,
+        updatedAtFrom,
+        updatedAtTo,
+        applyQuickDateFilter,
+        resetFilters
     };
 }

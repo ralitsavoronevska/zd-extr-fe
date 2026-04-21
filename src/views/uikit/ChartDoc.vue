@@ -25,15 +25,9 @@ function setChartOptions() {
     const textSecondary = style.getPropertyValue('--text-color-secondary');
     const surfaceBorder = style.getPropertyValue('--surface-border');
 
-    const sharedScales = {
-        x: {
-            ticks: { color: textSecondary, maxRotation: 45, minRotation: 45, autoSkip: false },
-            grid: { color: surfaceBorder }
-        },
-        y: {
-            ticks: { color: textSecondary },
-            grid: { color: surfaceBorder }
-        }
+    const xScale = {
+        ticks: { color: textSecondary, maxRotation: 45, minRotation: 45, autoSkip: false },
+        grid: { color: surfaceBorder }
     };
 
     barChartOptions.value = {
@@ -67,7 +61,15 @@ function setChartOptions() {
         datasets: {
             bar: { barThickness: 32, maxBarThickness: 40 }
         },
-        scales: sharedScales
+        scales: {
+            x: xScale,
+            y: {
+                ticks: { color: textSecondary, precision: 0 },
+                grid: { color: surfaceBorder },
+                beginAtZero: true,
+                suggestedMax: 1
+            }
+        }
     };
 
     lineChartOptions.value = {
@@ -76,7 +78,15 @@ function setChartOptions() {
         plugins: {
             legend: { display: false }
         },
-        scales: sharedScales
+        scales: {
+            x: xScale,
+            y: {
+                ticks: { color: textSecondary, callback: (v) => `${v}%` },
+                grid: { color: surfaceBorder },
+                min: 0,
+                max: 100
+            }
+        }
     };
 }
 </script>

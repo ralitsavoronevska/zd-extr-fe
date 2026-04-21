@@ -159,3 +159,13 @@ html {
         border-color: var(--app-btn-danger-hover-bg) !important;
     }
 }
+
+.p-multiselect-display-chip {
+    .p-multiselect-label {
+        flex-direction: column;
+    }
+}
+
+.p-multiselect-clear-icon {
+    display: none !important;
+}
