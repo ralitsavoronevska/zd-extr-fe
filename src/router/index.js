@@ -34,25 +34,8 @@ const router = createRouter({
     scrollBehavior: () => ({ top: 0 })
 });
 
-router.beforeEach(async (to) => {
+router.beforeEach((to) => {
     const authStore = useAuthStore();
-
-    if (authStore.isLoading) {
-        await new Promise((resolve) => {
-            if (!authStore.isLoading) return resolve();
-            const unwatch = authStore.$subscribe(() => {
-                if (!authStore.isLoading) {
-                    unwatch();
-                    resolve();
-                }
-            });
-            // Re-check after subscribe in case state changed between check and subscribe
-            if (!authStore.isLoading) {
-                unwatch();
-                resolve();
-            }
-        });
-    }
 
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
         return { name: 'login', query: to.path !== '/' ? { redirect: to.fullPath } : {} };

@@ -63,27 +63,13 @@ export const useTableStore = defineStore('table', () => {
     /** FULL options — date-range only, for active field dropdowns. */
     async function fetchFilterOptionsFromApi(filters) {
         const { buildFilterOptionsParams, fetchFilterOptions } = await import('@/services/ticketApi');
-        const params = buildFilterOptionsParams(filters);
-        filterOptions.value = await fetchFilterOptions(params);
-        if (import.meta.env.DEV) {
-            console.group('[tableStore] fetchFilterOptionsFromApi (FULL — date only)');
-            console.log('Params:', params);
-            console.log('topics:', filterOptions.value?.topic?.length, '| brands:', filterOptions.value?.brand?.length, '| vipLevels:', filterOptions.value?.vip_level?.length, '| sentiments:', filterOptions.value?.sentiment?.length, '| csatScores:', filterOptions.value?.csat_score?.length);
-            console.groupEnd();
-        }
+        filterOptions.value = await fetchFilterOptions(buildFilterOptionsParams(filters));
     }
 
     /** NARROWED options — date-range + attribute filters, for inactive field dropdowns. */
     async function fetchNarrowedFilterOptions(filters) {
         const { buildNarrowedFilterOptionsParams, fetchFilterOptions } = await import('@/services/ticketApi');
-        const params = buildNarrowedFilterOptionsParams(filters);
-        narrowedFilterOptions.value = await fetchFilterOptions(params);
-        if (import.meta.env.DEV) {
-            console.group('[tableStore] fetchNarrowedFilterOptions (NARROWED — date + attributes)');
-            console.log('Params:', params);
-            console.log('topics:', narrowedFilterOptions.value?.topic?.length, '| brands:', narrowedFilterOptions.value?.brand?.length, '| vipLevels:', narrowedFilterOptions.value?.vip_level?.length, '| sentiments:', narrowedFilterOptions.value?.sentiment?.length, '| csatScores:', narrowedFilterOptions.value?.csat_score?.length);
-            console.groupEnd();
-        }
+        narrowedFilterOptions.value = await fetchFilterOptions(buildNarrowedFilterOptionsParams(filters));
     }
 
     async function fetchStats(filters) {

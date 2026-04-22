@@ -57,16 +57,6 @@ export function applyMockedTicketFilters(data, params = {}) {
     const updatedAtStartMs = updatedAtStart ? new Date(updatedAtStart).getTime() : 0;
     const updatedAtEndMs = updatedAtEnd ? new Date(updatedAtEnd).getTime() : 0;
 
-    if (import.meta.env.DEV) {
-        console.group('[mockedTicketFilters] applyMockedTicketFilters called');
-        console.log('Total input rows:', data.length);
-        console.log('Multiselects:', { brand, topic, vip_level, customer_email, agent_email, _chatTagsString });
-        console.log('Single-selects:', { csat_score: csatVal, sentiment: sentimentLower });
-        console.log('Text filters:', { globalFilter: globalLower, ticketid: ticketIdStr, sentiment_reason: sentimentReasonLower, chat_transcript: chatTranscriptLower, email_transcript: emailTranscriptLower, summary: summaryLower });
-        console.log('Date ranges:', { startDate, endDate, startedAtStart, startedAtEnd, updatedAtStart, updatedAtEnd });
-        console.groupEnd();
-    }
-
     const result = [];
 
     for (let i = 0; i < data.length; i++) {

@@ -1,234 +1,83 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import api from '@/services/authApi';
 
-// Cache for the auth instance (closure variable – lives as long as the store)
-let cachedAuth = null;
-// Store unsubscribe functions to clean up listeners
-let unsubscribeAuth = null;
-let visibilityHandler = null;
-
-// Cooldown for visibility re-validation — avoid expensive indexedDB.databases()
-// and forced token refresh on every tab focus (only re-check once per 60s)
-const VISIBILITY_CHECK_COOLDOWN_MS = 60_000;
-let lastVisibilityCheck = 0;
-
-/** Tear down Firebase auth & visibility listeners (shared by logout + initializeAuth). */
-function cleanupListeners() {
-    if (unsubscribeAuth) {
-        unsubscribeAuth();
-        unsubscribeAuth = null;
-    }
-    if (visibilityHandler) {
-        document.removeEventListener('visibilitychange', visibilityHandler);
-        visibilityHandler = null;
-    }
-}
-
-const DJANGO_TOKEN_ENDPOINT = '/api/token/';
+const LOGIN_ENDPOINT = '/api/login/';
+const LOGOUT_ENDPOINT = '/api/logout/';
 
 export const useAuthStore = defineStore('auth', () => {
-    const user = ref(null); // { uid, email, displayName }
-    const role = ref(null); // Single role string from Firestore (e.g. 'viewer', 'admin')
-    const isLoading = ref(true);
+    // In-memory only by design — the token is lost on page refresh.
+    // The server is the source of truth for the session; we only hold the bearer
+    // token for the duration of the current tab. No localStorage / sessionStorage /
+    // cookie persistence so XSS can't exfiltrate the token.
+    const token = ref(null);
+    const user = ref(null); // { id, username, is_admin }
+    const isLoading = ref(false);
     const error = ref(null);
 
-    const isAuthenticated = computed(() => !!user.value);
+    const isAuthenticated = computed(() => !!token.value);
+    const isAdmin = computed(() => !!user.value?.is_admin);
 
-    const isFirebase = import.meta.env.VITE_USE_FIREBASE === 'true';
-
-    // ====================== HELPERS ======================
-
-    // Lazy-load and cache Firebase auth instance
-    async function getFirebaseAuth() {
-        if (cachedAuth) return cachedAuth;
-
-        const { auth: importedAuth } = await import('@/firebase');
-
-        if (!importedAuth) {
-            throw new Error('Firebase auth instance not exported from @/firebase — check firebase/index.js exports');
-        }
-        cachedAuth = importedAuth;
-        return cachedAuth;
+    function setAuthHeader(value) {
+        if (value) api.defaults.headers.common['Authorization'] = value;
+        else delete api.defaults.headers.common['Authorization'];
     }
 
-    // Fetch user data (role, displayName) from Firestore users/{uid} document
-    async function fetchUserData(uid) {
-        if (!uid) return { role: null, displayName: null };
-        try {
-            const { doc, getDoc } = await import('firebase/firestore');
-            const { db: importedDb } = await import('@/firebase');
-
-            const userDocRef = doc(importedDb, 'users', uid);
-            const userDoc = await getDoc(userDocRef);
-
-            if (userDoc.exists()) {
-                const data = userDoc.data();
-                return { role: data.role || null, displayName: data.displayName || null };
-            }
-            return { role: null, displayName: null };
-        } catch (err) {
-            console.error(`Error fetching user data for uid=${uid}:`, err?.message || err);
-            return { role: null, displayName: null };
-        }
-    }
-
-    // ====================== LOGIN ======================
-    async function login(email, password) {
+    async function login(username, password) {
         error.value = null;
         isLoading.value = true;
-
         try {
-            if (isFirebase) {
-                await loginFirebase(email, password);
-            } else {
-                await loginDjango(email, password); // ← future implementation
-            }
+            const res = await api.post(LOGIN_ENDPOINT, { username, password });
+            token.value = res.data.token;
+            user.value = res.data.user;
+            // Note the "Token" prefix (DRF TokenAuthentication), NOT "Bearer"
+            setAuthHeader(`Token ${token.value}`);
             return { success: true };
         } catch (err) {
-            error.value = err.message || 'Login failed';
-            throw err; // let Login.vue decide redirect
+            const data = err.response?.data;
+            error.value = data?.detail || data?.non_field_errors?.[0] || err.message || 'Login failed';
+            throw err;
         } finally {
             isLoading.value = false;
         }
     }
 
-    async function loginFirebase(email, password) {
-        const auth = await getFirebaseAuth();
-        const { signInWithEmailAndPassword } = await import('firebase/auth');
-
-        const credential = await signInWithEmailAndPassword(auth, email, password);
-
-        const fbUser = credential.user;
-        if (fbUser) {
-            const userData = await fetchUserData(fbUser.uid);
-            user.value = {
-                uid: fbUser.uid,
-                email: fbUser.email,
-                displayName: userData.displayName || fbUser.displayName || email.split('@')[0]
-            };
-            role.value = userData.role;
-        }
-    }
-
-    // Placeholder – ready for Django JWT
-    async function loginDjango(email, password) {
-        const api = (await import('@/services/authApi')).default;
-        const res = await api.post(DJANGO_TOKEN_ENDPOINT, { email, password });
-
-        // Django will return access token + set HttpOnly refresh cookie
-        user.value = res.data.user || { email };
-        // If Django also provides roles, you'd set them here
-        // roles.value = res.data.roles || [];
-    }
-
-    // ====================== LOGOUT ======================
     async function logout() {
-        cleanupListeners();
-
-        if (isFirebase) {
-            const auth = await getFirebaseAuth();
-            const { signOut } = await import('firebase/auth');
-            await signOut(auth);
-        } else {
-            // Django: clear HttpOnly refresh cookie
-            const api = (await import('@/services/authApi')).default;
-            await api.post('/api/logout/', {}, { withCredentials: true });
+        // Best-effort server notification — if it fails (network, already-invalid
+        // token) we still clear local state so the user ends up signed out.
+        try {
+            if (token.value) await api.post(LOGOUT_ENDPOINT);
+        } catch (err) {
+            console.warn('Logout API call failed — clearing local state anyway:', err?.message || err);
+        } finally {
+            setAuthHeader(null);
+            token.value = null;
+            user.value = null;
+            error.value = null;
         }
-
-        user.value = null;
-        role.value = null;
-        error.value = null;
     }
 
-    // ====================== INITIALIZE ======================
     function initializeAuth() {
-        isLoading.value = true;
-        role.value = null;
-
-        if (isFirebase) {
-            // Fully lazy listener setup
-            Promise.all([
-                import('firebase/auth'),
-                getFirebaseAuth() // initializes/caches auth when needed
-            ])
-                .then(([{ onAuthStateChanged }, auth]) => {
-                    cleanupListeners();
-
-                    let isInitialCheck = true;
-
-                    // Re-validate auth when user returns to the tab
-                    // (catches cleared IndexedDB, expired tokens, etc.)
-                    // Two checks:
-                    // (1) verify Firebase Auth's IDB still exists — if a user
-                    // cleared site data, the in-memory token survives but persistence is gone,
-                    // so the next page load would lose the session silently. Detect it now.
-                    // (2) Force a token refresh as a secondary check for revoked tokens.
-                    visibilityHandler = async () => {
-                        if (document.visibilityState === 'visible' && user.value) {
-                            const now = Date.now();
-                            if (now - lastVisibilityCheck < VISIBILITY_CHECK_COOLDOWN_MS) return;
-                            lastVisibilityCheck = now;
-
-                            try {
-                                // Check if Firebase Auth persistence DB still exists
-                                const dbs = await indexedDB.databases();
-                                const authDbExists = dbs.some((db) => db.name?.startsWith('firebase'));
-                                if (!authDbExists) throw new Error('Firebase Auth IDB cleared');
-
-                                const { getIdToken } = await import('firebase/auth');
-                                await getIdToken(auth.currentUser, true);
-                            } catch {
-                                user.value = null;
-                                role.value = null;
-                                window.location.href = `${import.meta.env.BASE_URL}login`;
-                            }
-                        }
-                    };
-                    document.addEventListener('visibilitychange', visibilityHandler);
-
-                    // Set up listener and store unsubscribe function for cleanup
-                    unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-                        if (fbUser) {
-                            const userData = await fetchUserData(fbUser.uid);
-                            user.value = {
-                                uid: fbUser.uid,
-                                email: fbUser.email,
-                                displayName: userData.displayName || fbUser.displayName
-                            };
-                            role.value = userData.role;
-                        } else {
-                            const wasLoggedIn = !!user.value;
-                            user.value = null;
-                            role.value = null;
-
-                            // Redirect to login if session was lost (e.g. cache cleared)
-                            // but not on the initial auth check (page load)
-                            if (!isInitialCheck && wasLoggedIn) {
-                                window.location.href = `${import.meta.env.BASE_URL}login`;
-                            }
-                        }
-                        isLoading.value = false;
-                        isInitialCheck = false;
-                    });
-                })
-                .catch((err) => {
-                    console.error('Auth initialization failed:', err);
-                    isLoading.value = false;
-                    role.value = null;
-                });
-        } else {
-            isLoading.value = false; // Django will check /api/me/ later
-        }
+        // Nothing to restore — token is in-memory only. On every fresh page load
+        // the user starts unauthenticated and will be routed to /login by the guard.
+        isLoading.value = false;
     }
 
-    const hasRole = (roleToCheck) => role.value === roleToCheck;
+    // Kept for backward compatibility with existing consumers (`hasRole('admin')`).
+    // Django backend only exposes `is_admin`; any non-admin role check resolves
+    // to "authenticated" since the API has no other role dimension.
+    function hasRole(roleToCheck) {
+        if (roleToCheck === 'admin') return isAdmin.value;
+        return isAuthenticated.value;
+    }
 
     return {
+        token,
         user,
-        role,
-        isAuthenticated,
         isLoading,
         error,
+        isAuthenticated,
+        isAdmin,
         login,
         logout,
         initializeAuth,

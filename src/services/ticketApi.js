@@ -212,15 +212,8 @@ export function buildExportParams(filters = {}) {
  * returns has_chat_transcript / has_email_transcript booleans instead.
  */
 export async function fetchTicketList(params) {
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketList request params:', params);
     const response = await api.get('/api/ticket-conversation-summaries/', { params });
-    const data = response.data;
-    if (import.meta.env.DEV) {
-        const rows = Array.isArray(data) ? data.length : (data.results?.length ?? 'N/A');
-        const count = Array.isArray(data) ? data.length : (data.count ?? 'N/A');
-        console.log('[ticketApi] fetchTicketList response — rows received:', rows, '| total count:', count);
-    }
-    return data;
+    return response.data;
 }
 
 /**
@@ -229,7 +222,6 @@ export async function fetchTicketList(params) {
  */
 export async function fetchTicketDetail(ticketId) {
     const response = await api.get(`/api/ticket-summaries/${ticketId}/`);
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketDetail response:', response.data);
     return response.data;
 }
 
@@ -239,9 +231,7 @@ export async function fetchTicketDetail(ticketId) {
  * Response shape: { topic: [...], brand: [...], vip_level: [...], ... }
  */
 export async function fetchFilterOptions(params) {
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchFilterOptions request params:', params);
     const response = await api.get('/api/ticket-filter-options/', { params });
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchFilterOptions response:', response.data);
     return response.data;
 }
 
@@ -250,9 +240,7 @@ export async function fetchFilterOptions(params) {
  * Aggregated statistics for the dashboard StatsWidget.
  */
 export async function fetchTicketStats(params) {
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketStats request params:', params);
     const response = await api.get('/api/ticket-stats/', { params });
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchTicketStats response:', response.data);
     return response.data;
 }
 
@@ -262,9 +250,7 @@ export async function fetchTicketStats(params) {
  * Returns { topics: [{ topic, total, negative, percent_negative }] }
  */
 export async function fetchTopicChartData(params) {
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchTopicChartData request params:', params);
     const response = await api.get('/api/topic-chart-data/', { params });
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchTopicChartData response:', response.data);
     return response.data;
 }
 
@@ -274,9 +260,7 @@ export async function fetchTopicChartData(params) {
  * Returns { segments, dates, data, totals }
  */
 export async function fetchVipCsatData(params) {
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchVipCsatData request params:', params);
     const response = await api.get('/api/vip-csat-data/', { params });
-    if (import.meta.env.DEV) console.log('[ticketApi] fetchVipCsatData response:', response.data);
     return response.data;
 }
 

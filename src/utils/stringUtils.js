@@ -36,15 +36,6 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
     hour12: false
 });
 
-/** Mask an email address with a fixed-width placeholder to avoid revealing length. */
-export function maskEmail(email) {
-    if (!email || email === 'none') return 'none';
-    const atIdx = email.indexOf('@');
-    if (atIdx === -1) return '****@****';
-    const domain = email.slice(atIdx);
-    return `****${domain}`;
-}
-
 export function cleanAndFormatString(input) {
     if (!input || typeof input !== 'string') return input;
 

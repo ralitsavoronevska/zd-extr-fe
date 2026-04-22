@@ -6,7 +6,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useFacetedFilterOptions } from '@/composables/useFacetedFilterOptions';
 import { useCsvExport } from '@/composables/useCsvExport';
 import { applyMockedTicketFilters } from '@/utils/mockedTicketFilters';
-import { maskEmail } from '@/utils/stringUtils';
 import { buildTicketListParams, buildExportParams, exportTicketsCsv } from '@/services/ticketApi';
 import { formatDate } from '@/utils/dateUtils';
 import { PAGE_SIZE_DEFAULT, FILTER_DEBOUNCE_MS } from '@/composables/useTicketFilters';
@@ -28,7 +27,7 @@ export function useTicketTableData(filterState, dataTableRef) {
     const ticketDataStore = useTicketDataStore();
     const authStore = useAuthStore();
     const { isLoading } = storeToRefs(ticketDataStore);
-    const isAdmin = computed(() => authStore.hasRole('admin'));
+    const { isAdmin } = storeToRefs(authStore);
 
     // ════════════════════════════════════════════════════════════════════
     //  MOCK MODE — client-side filtering, pagination, faceted options
@@ -41,25 +40,7 @@ export function useTicketTableData(filterState, dataTableRef) {
     if (USE_MOCKED) {
         const { mockedFullProcessedTickets } = storeToRefs(ticketDataStore);
 
-        mockedFilteredTickets = computed(() => {
-            const params = extractFilterParams();
-            if (import.meta.env.DEV) {
-                console.group('[useTicketTableData] mocked mode — extractFilterParams()');
-                console.log('Multiselects:', { brand: params.brand, topic: params.topic, vip_level: params.vip_level, customer_email: params.customer_email, agent_email: params.agent_email, _chatTagsString: params._chatTagsString });
-                console.log('Single-selects:', { csat_score: params.csat_score, sentiment: params.sentiment });
-                console.log('Text:', {
-                    globalFilter: params.globalFilter,
-                    ticketid: params.ticketid,
-                    sentiment_reason: params.sentiment_reason,
-                    chat_transcript: params.chat_transcript,
-                    email_transcript: params.email_transcript,
-                    summary: params.summary
-                });
-                console.log('Dates:', { startDate: params.startDate, endDate: params.endDate, startedAtStart: params.startedAtStart, startedAtEnd: params.startedAtEnd, updatedAtStart: params.updatedAtStart, updatedAtEnd: params.updatedAtEnd });
-                console.groupEnd();
-            }
-            return applyMockedTicketFilters(mockedFullProcessedTickets.value, params);
-        });
+        mockedFilteredTickets = computed(() => applyMockedTicketFilters(mockedFullProcessedTickets.value, extractFilterParams()));
 
         mockedPaginatedTickets = computed(() => {
             const start = (lazyParams.value.page - 1) * lazyParams.value.limit;
@@ -99,30 +80,6 @@ export function useTicketTableData(filterState, dataTableRef) {
         if (USE_MOCKED) return;
 
         const filterParams = extractFilterParams();
-        if (import.meta.env.DEV) {
-            console.group('[useTicketTableData] API mode — fetchData()');
-            console.log('Multiselects:', {
-                brand: filterParams.brand,
-                topic: filterParams.topic,
-                vip_level: filterParams.vip_level,
-                customer_email: filterParams.customer_email,
-                agent_email: filterParams.agent_email,
-                _chatTagsString: filterParams._chatTagsString
-            });
-            console.log('Single-selects:', { csat_score: filterParams.csat_score, sentiment: filterParams.sentiment });
-            console.log('Text:', {
-                globalFilter: filterParams.globalFilter,
-                ticketid: filterParams.ticketid,
-                sentiment_reason: filterParams.sentiment_reason,
-                chat_transcript: filterParams.chat_transcript,
-                email_transcript: filterParams.email_transcript,
-                summary: filterParams.summary
-            });
-            console.log('Dates:', { startDate: filterParams.startDate, endDate: filterParams.endDate });
-            console.log('Pagination:', { page: lazyParams.value.page, limit: lazyParams.value.limit, sortField: lazyParams.value.sortField, sortOrder: lazyParams.value.sortOrder });
-            console.groupEnd();
-        }
-
         const listParams = buildTicketListParams(filterParams, {
             page: lazyParams.value.page,
             rows: lazyParams.value.limit,
@@ -175,17 +132,12 @@ export function useTicketTableData(filterState, dataTableRef) {
     //  UNIFIED — data bindings that work in both modes
     // ════════════════════════════════════════════════════════════════════
 
-    const rawTableData = computed(() => {
+    // Customer emails are masked SERVER-SIDE for non-admin users (backend returns
+    // "*****" or a similar placeholder). The frontend just renders whatever the API
+    // returns — no client-side masking pass.
+    const tableData = computed(() => {
         if (USE_MOCKED) return mockedPaginatedTickets?.value ?? [];
         return ticketDataStore.tickets;
-    });
-
-    // SECURITY: UI-only masking — real emails are still in API responses and Pinia state.
-    // Remove once backend implements server-side masking (see CLAUDE.md "Backend requirement").
-    const tableData = computed(() => {
-        const rows = rawTableData.value;
-        if (isAdmin.value || !rows.length) return rows;
-        return rows.map((row) => ({ ...row, customer_email: maskEmail(row.customer_email) }));
     });
 
     const totalRecords = computed(() => {
@@ -207,16 +159,8 @@ export function useTicketTableData(filterState, dataTableRef) {
             computed(() => {
                 const filterVal = filters.value[filterKey]?.value;
                 const isActive = Array.isArray(filterVal) ? filterVal.length > 0 : filterVal != null && filterVal !== '';
-
-                if (isActive) {
-                    const opts = sorted(tableStore.filterOptions, apiKey);
-                    if (import.meta.env.DEV) console.log(`[useTicketTableData] API dropdown "${apiKey}": ${opts.length} options (FULL — field is active)`);
-                    return opts;
-                }
-
-                const opts = sorted(tableStore.narrowedFilterOptions, apiKey);
-                if (import.meta.env.DEV) console.log(`[useTicketTableData] API dropdown "${apiKey}": ${opts.length} options (NARROWED — from filtered time period)`);
-                return opts;
+                const source = isActive ? tableStore.filterOptions : tableStore.narrowedFilterOptions;
+                return sorted(source, apiKey);
             });
 
         availableTopics = smartOptions('topic', 'topic');
@@ -298,7 +242,6 @@ export function useTicketTableData(filterState, dataTableRef) {
     return {
         isLoading,
         isAdmin,
-        maskEmail,
         tableData,
         totalRecords,
         availableTopics,

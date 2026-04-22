@@ -99,10 +99,6 @@ export default defineConfig({
                         return 'framework';
                     }
 
-                    if (id.includes('firebase')) {
-                        return 'firebase';
-                    }
-
                     if (id.includes('chart.js') || id.includes('recharts')) {
                         return 'charts';
                     }

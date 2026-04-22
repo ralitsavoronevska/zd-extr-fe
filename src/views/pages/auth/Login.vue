@@ -13,15 +13,14 @@ const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 
-const email = ref('');
+const username = ref('');
 const password = ref('');
 const passwordRef = ref(null);
 const loading = ref(false);
 const formError = ref(''); // local error message (clears on input change)
 const shake = ref(false); // subtle shake animation on failure
 
-// Clean up authStore.error when user starts typing again
-watch([email, password], () => {
+watch([username, password], () => {
     formError.value = '';
     authStore.error = null;
 });
@@ -46,7 +45,7 @@ async function handleLogin() {
     loading.value = true;
 
     try {
-        const result = await authStore.login(email.value, password.value);
+        const result = await authStore.login(username.value, password.value);
 
         if (result.success) {
             // Success → redirect
@@ -55,7 +54,7 @@ async function handleLogin() {
         }
     } catch (err) {
         // Failure → show error message + shake effect
-        formError.value = authStore.error || err.message || 'Invalid email or password';
+        formError.value = authStore.error || err.message || 'Invalid username or password';
         shake.value = true;
 
         // Remove shake after animation
@@ -82,10 +81,10 @@ async function handleLogin() {
                         </div>
 
                         <form @submit.prevent="handleLogin" v-if="!authStore.isLoading" class="space-y-6">
-                            <!-- Email -->
+                            <!-- Username -->
                             <div>
-                                <label for="email1" class="block text-surface-900 dark:text-surface-0 text-xl font-medium mb-2"> Email </label>
-                                <InputText id="email1" type="email" placeholder="Email address" class="w-full md:w-[30rem]" v-model="email" required autofocus />
+                                <label for="username1" class="block text-surface-900 dark:text-surface-0 text-xl font-medium mb-2"> Username </label>
+                                <InputText id="username1" type="text" placeholder="Username" class="w-full md:w-[30rem]" v-model="username" autocomplete="username" required autofocus />
                             </div>
 
                             <!-- Password -->
@@ -100,7 +99,7 @@ async function handleLogin() {
                             </div>
 
                             <!-- Submit Button -->
-                            <Button type="submit" label="Sign In" class="w-full" :loading="loading || authStore.isLoading" :disabled="loading || authStore.isLoading || !email || !password" />
+                            <Button type="submit" label="Sign In" class="w-full" :loading="loading || authStore.isLoading" :disabled="loading || authStore.isLoading || !username || !password" />
                         </form>
 
                         <!-- Loading state overlay -->

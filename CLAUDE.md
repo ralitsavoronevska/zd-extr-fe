@@ -8,7 +8,7 @@
 - Analytics dashboard with charts (topic distribution, sentiment breakdown)
 - VIP customer tracking table
 - CSV export with size warnings
-- Firebase email/password authentication with Firestore RBAC (role-based access control)
+- Django-backed username/password authentication with `is_admin` flag (DRF TokenAuthentication)
 - Role-based UI (e.g. email masking for non-admin users)
 - Dark/light mode toggle (persisted to localStorage)
 - Deployed to GitHub Pages at `/zd-extr-fe/`
@@ -25,7 +25,7 @@
 | UI | PrimeVue 4 (Aura theme), PrimeIcons 7 |
 | Styling | Tailwind CSS 4 + tailwindcss-primeui, SCSS |
 | Charts | Chart.js 3 (via PrimeVue `<Chart>`) |
-| Auth | Firebase 12 Auth + Firestore RBAC (primary), Django JWT (secondary) |
+| Auth | Django DRF TokenAuthentication (username/password, `is_admin` flag) |
 | HTTP | Axios + JWT refresh interceptor |
 | Build | Vite 6 (base: `/zd-extr-fe/`) |
 | Deploy | gh-pages (`npm run deploy`) |
@@ -46,11 +46,11 @@
 
 6. **Faceted filter options** — **Mock mode**: `useFacetedFilterOptions` composable with single-pass bitmask aggregation (client-side). **API mode**: `GET /api/ticket-filter-options/` returns distinct values server-side with the same faceted logic — applying all active filters except the field's own. Response shape: `{ topic: [], brand: [], vip_level: [], customer_email: [], agent_email: [], chat_tags: [], sentiment: [], csat_score: [] }`.
 
-7. **Firebase is primary auth with Firestore RBAC** — `VITE_USE_FIREBASE=true` in `.env`. Firebase Auth handles login; Firestore `users/{uid}` stores `role` and `displayName`. Auth store fetches user data from Firestore after login and on `onAuthStateChanged`. `hasRole()` is a plain function (not computed) for role checks. Django JWT auth (`authApi.js`) is implemented but secondary. Route guards await `initializeAuth()` before every navigation. See `FIREBASE+FIRESTORE.md` for full setup guide.
+7. **Django token authentication (DRF TokenAuthentication)** — `POST /api/login/` returns `{ token, user: { id, username, is_admin } }`. Every subsequent request sends `Authorization: Token <token>` (note: `Token ` prefix, **not** `Bearer`). `POST /api/logout/` invalidates the server-side token. The auth store (`src/stores/auth.js`) holds `token` + `user` in memory only — **no localStorage / sessionStorage / cookies** — so the token never persists across tab/refresh (XSS can't exfiltrate it). On page refresh the user is always unauthenticated and routed to `/login`. On 401 the `authApi.js` interceptor clears auth state and redirects. `hasRole('admin')` proxies to `user.is_admin`; any other role check resolves to "authenticated". Route guards await `initializeAuth()` which resolves immediately (no persisted state to restore).
 
-8. **Mock data fallback** — Set `VITE_USE_MOCKED_DATA=true` in `.env` (comment out the line to disable) to load `src/services/mocked-ticket-summaries.json` instead of hitting the API.
+8. **Mock data fallback** — Set `VITE_USE_MOCKED_DATA=true` in `.env` (comment out the line to disable) to load `src/services/mocked-ticket-summaries.json` instead of hitting the API. **Note**: mock mode only replaces the *ticket data* endpoints — login still hits the real Django backend at `VITE_API_URL`, so you need the backend running to sign in. Also: the backend masks `customer_email` server-side for non-admins, but mock data has raw emails baked in, so non-admin users in mock mode will see real emails (dev-only concern — production uses the API).
 
-9. **Code splitting** — Vite manual chunks: `framework` (vue/pinia/vue-router), `primevue-theme` (Aura preset), `primevue-config` (config/services), `primevue` (components), `firebase`, `charts`, `vendor`. Combined with lazy routes and async components this produces an optimal loading cascade.
+9. **Code splitting** — Vite manual chunks: `framework` (vue/pinia/vue-router), `primevue-theme` (Aura preset), `primevue-config` (config/services), `primevue` (components), `charts`, `vendor`. Combined with lazy routes and async components this produces an optimal loading cascade.
 
 10. **PrimeIcons hosted locally** — Font files committed to `public/fonts/primeicons/`, frozen from npm updates. Vite plugin `primeicons-local-fonts` rewrites CSS `url()` references and strips font files from `dist/assets/` at build time. A `@font-face` rule in `styles.scss` sets `font-display: swap` to prevent FOIT (flash of invisible text).
 
@@ -68,7 +68,7 @@ src/
 ├── App.vue                            # Root: auth loading gate + router-view
 ├── router/index.js                    # 4 lazy routes (/login, /, /error, /access-denied) + auth guards
 ├── stores/
-│   ├── auth.js                        # Firebase/Django auth state + Firestore RBAC (user, role, hasRole)
+│   ├── auth.js                        # Django token auth state (token, user, isAdmin, hasRole) — in-memory only
 │   ├── tableStore.js                  # filteredTickets + memoized chart aggregations (topicStats etc.)
 │   └── ticketData.js                  # Core: data fetch, IDB cache, batched normalization, lazy init (Pinia store)
 ├── composables/
@@ -91,7 +91,7 @@ src/
 ├── utils/
 │   ├── mockedTicketFilters.js         # Mock-mode: applyMockedTicketFilters() — single-pass filter loop
 │   ├── normalization.js               # emptyToNone(), normalizeTranscript()
-│   ├── stringUtils.js                 # cleanAndFormatString(), maskEmail()
+│   ├── stringUtils.js                 # cleanAndFormatString()
 │   ├── dateUtils.js                   # formatDate() helper
 │   └── debounce.js                    # debounce() utility for throttling rapid input
 ├── config/
@@ -114,7 +114,6 @@ src/
 │   ├── AppTopbar.vue                  # Header: Logo, dark mode toggle, logout
 │   ├── AppFooter.vue
 │   └── composables/layout.js          # Dark mode state (useLayout composable, persisted to localStorage)
-├── firebase/index.js                  # Firebase SDK init: exports `auth` and `db` (Firestore) instances
 └── assets/layout/                     # SCSS: layout.scss, _topbar, _core, _typography, _preloading, _utils, _mixins, _responsive, variables/ (_common, _dark, _light)
 ```
 
@@ -143,19 +142,9 @@ Param builders in `src/services/ticketApi.js`: `buildTicketListParams()`, `build
 - `buildVipCsatParams` — `timestamp_gte/lt` + `vip_level` + `csat_score` only
 - `buildExportParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (same subset as topic chart). CSV export is **disabled in the UI** when `ticketid` is set because the export endpoint ignores the ticketid param.
 
-### Backend requirement: server-side customer email masking (SECURITY)
+### Customer email masking (server-side)
 
-**Current state (insecure):** The frontend masks `customer_email` in the UI for non-admin users (`useTicketTableData.js` + `maskEmail()` in `stringUtils.js`). `maskEmail` uses a fixed-width placeholder (`****@domain.com`) that does not reveal the original email length. However, raw unmasked emails are still visible in API responses (Network tab), Pinia state (Vue DevTools), and the browser console. This is cosmetic masking only — not a security boundary.
-
-**Required backend behavior:** All endpoints that return or accept `customer_email` must enforce role-based masking server-side. The backend should inspect the authenticated user's role and:
-
-1. **Ticket list** (`/api/ticket-conversation-summaries/`) — return masked `customer_email` (e.g. `c*****@example.com`) for non-admin users
-2. **Ticket detail** (`/api/ticket-summaries/{ticketid}/`) — same masking
-3. **Filter options** (`/api/ticket-filter-options/`) — either omit the `customer_email` array entirely for non-admins, or return masked values. If masked values are returned, the backend must accept those masked values as filter params and match them against real emails internally
-4. **CSV export** (`/api/ticket-summaries/export/`) — export masked emails for non-admins
-5. **Stats/chart/VIP endpoints** — do not expose `customer_email`, so no change needed
-
-Once the backend implements this, the frontend's client-side masking (`maskEmail` in `useTicketTableData.js`) becomes redundant and can be removed. Until then, it remains as a UI courtesy — not a security control.
+The backend masks `customer_email` server-side based on the authenticated user's `is_admin` flag — non-admin users see a placeholder (e.g. `*****`), admins see the raw email. The frontend renders whatever the API returns; there is **no client-side masking pass**. This applies uniformly to the ticket list, ticket detail, filter options, and CSV export responses.
 
 ---
 
@@ -209,7 +198,6 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 ### Vue Style
 - Always use `<script setup>` — never Options API
 - Async operations use `async/await` with `try/catch`
-- Lazy Firebase imports: `const { signInWithEmailAndPassword } = await import('firebase/auth')`
 
 ### Naming Convention
 | Type | Convention | Example |
@@ -323,17 +311,13 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 - **Date filter "Clear" button** — PrimeVue's built-in Clear replaces the `constraints` array with a single empty constraint, which would break the From/To DatePicker bindings. A watcher in `useTicketFilters.js` restores the `[DATE_AFTER, DATE_BEFORE]` shape when length drops below 2.
 
 ### Auth issues
-- Auth state: `useAuthStore()` — inspect `isAuthenticated`, `user`, `role`, `isLoading` in Vue DevTools
-- Route guard awaits `initializeAuth()` which resolves after Firebase `onAuthStateChanged` — if this hangs, check Firebase config in `.env`
-- Role not loading: verify Firestore `users/{uid}` document exists and the document ID matches the Firebase Auth UID exactly
-- `hasRole()` is a plain function (not computed) — wrap in `computed()` at the call site for reactivity: `const isAdmin = computed(() => authStore.hasRole('admin'))`
-- **Session invalidation redirect** — three layers detect lost sessions and hard-redirect to `/login`:
-  1. XHR interceptor in `firebase/index.js` — catches Firestore 400 responses (e.g. cleared IndexedDB)
-  2. `visibilitychange` listener in `auth.js` — two checks: verifies Firebase Auth's IDB still exists via `indexedDB.databases()`, then forces a token refresh via `getIdToken(true)` to catch revoked tokens
-  3. `onAuthStateChanged` callback in `auth.js` — catches SDK-detected session loss (e.g. account disabled)
-- Django JWT: `authApi.js` interceptor auto-retries on 401 using `REFRESH_ENDPOINT` constant. If looping, check the refresh endpoint
-- Firebase errors: `firebase/index.js` validates required env vars (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`) on startup and logs missing ones. Verify all `VITE_FIREBASE_*` env vars match the Firebase console project settings
-- See `FIREBASE+FIRESTORE.md` for full setup guide (adding users, Firestore structure, security rules)
+- Auth state: `useAuthStore()` — inspect `token`, `user`, `isAuthenticated`, `isAdmin`, `isLoading` in Vue DevTools. `token` is `null` on every fresh page load by design (in-memory only).
+- **"I logged in and the page refresh logged me out"** — this is expected. Token is in-memory only (no localStorage/cookies) so refresh always starts unauthenticated. If persistence is needed, store the token in `localStorage` on login / read on `initializeAuth` — tradeoff is XSS exposure.
+- `hasRole()` is a plain function (not computed) — wrap in `computed()` at the call site for reactivity: `const isAdmin = computed(() => authStore.hasRole('admin'))`. `hasRole('admin')` is equivalent to `authStore.isAdmin`; other role strings resolve to `isAuthenticated`.
+- **Login request**: `POST /api/login/` with `{ username, password }`. Response: `{ token, user: { id, username, is_admin } }`. On success the auth store sets `api.defaults.headers.common['Authorization'] = 'Token <token>'` so every subsequent API call is authenticated.
+- **401 handler** in `authApi.js` interceptor: clears auth state via `logout()` + `window.location.href = '/login'`. No refresh-token retry loop (DRF TokenAuthentication tokens don't expire).
+- **Authorization header format** is `Token <value>`, **not** `Bearer <value>`. If the backend returns 401 on valid-looking requests, check the header prefix in DevTools Network tab.
+- Login failures: error message comes from `error.response.data.detail` or `error.response.data.non_field_errors[0]` (standard DRF error shapes). Falls back to `err.message` then a generic string.
 
 ### Transcripts
 - **Email transcripts containing "Conversation with" are sanitized to empty string** during normalization (`sanitizeEmailTranscript` in `ticketData.js`). These are chat-session metadata lines, not actual email transcripts. When sanitized to empty, `has_email_transcript` is also flipped to `false` so the "View" button doesn't render.
@@ -348,7 +332,7 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 ### Build / deployment issues
 - Base URL must be `/zd-extr-fe/` in `vite.config.mjs` — do not change for GitHub Pages
 - `npm run deploy` runs `npm run build` then `gh-pages -d dist`
-- Never commit `.env` — Firebase credentials must be set per-environment
+- Never commit `.env`
 - PrimeIcons fonts must exist in `public/fonts/primeicons/` — copy from `node_modules/primeicons/fonts/` once after install; they are committed to git and not regenerated by Vite
 
 ---
@@ -357,15 +341,9 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 
 | Variable | Purpose |
 |---|---|
-| `VITE_USE_FIREBASE` | `true` to use Firebase auth |
 | `VITE_USE_MOCKED_DATA` | `true` to load local mock JSON instead of API (comment out to disable) |
-| `VITE_FIREBASE_API_KEY` | Firebase project API key |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain |
-| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID |
-| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
-| `VITE_FIREBASE_APP_ID` | Firebase app ID |
-| `VITE_API_URL` | API proxy target for dev server (fallback: `http://13.53.64.132`) |
+| `VITE_API_BASE_URL` | axios `baseURL` for `authApi.js` (default: empty — requests go to same origin and rely on the Vite proxy) |
+| `VITE_API_URL` | Dev-server proxy target for `/api/*` (fallback: `http://13.53.64.132`) |
 
 API proxy (dev only): `/api/` → `VITE_API_URL` or `http://13.53.64.132` (configured in `vite.config.mjs`)
 
@@ -406,7 +384,7 @@ Cumulative counts seen when clicking the quick-filter buttons: Today 308, Last 7
 - **Do NOT add `/:pathMatch(.*)*` catch-all route** — it breaks GitHub Pages cold navigation. Vue Router cannot intercept direct URL loads on GH Pages; the 404.html trick is needed instead.
 - **`isLoading` from `useTicketDataStore()`** — use this for DataTable `:loading` prop; do not create a local `loading = ref(false)` that is never set.
 - **`processRecords` is async (mock mode)** — it yields between batches. Any code that depends on `mockedFullProcessedTickets` must wait for `isLoading` to become false, not run immediately after `lazyInit()`.
-- **Named constants over magic numbers** — e.g. `PAGE_SIZE_DEFAULT = 5`, `FILTER_DEBOUNCE_MS = 300`, `CSAT_HIGH_THRESHOLD = 80`, `CSV_ROW_WARN_THRESHOLD = 10_000`, `PROCESS_BATCH_SIZE = 150`, `IDB_TIMEOUT_MS = 5000`, `REFRESH_ENDPOINT`, `DJANGO_TOKEN_ENDPOINT`.
+- **Named constants over magic numbers** — e.g. `PAGE_SIZE_DEFAULT = 5`, `FILTER_DEBOUNCE_MS = 300`, `CSAT_HIGH_THRESHOLD = 80`, `CSV_ROW_WARN_THRESHOLD = 10_000`, `PROCESS_BATCH_SIZE = 150`, `IDB_TIMEOUT_MS = 5000`, `LOGIN_ENDPOINT`, `LOGOUT_ENDPOINT`.
 - **No virtual scrolling on DataTable** — lazy pagination (5 rows default, `PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100]`) is used instead. The DataTable uses `lazy=true` with `onPage`/`onFilter` events. Mock mode slices `filteredTickets` client-side; API mode receives pre-paginated results from the server.
 - **Data is already normalized** by `processRecords` (mock) or `normalizeApiRecord` (API) — no need for defensive `|| 'none'` / `|| 'No Data'` checks downstream.
 - **`topic` is a multiselect filter** — its value is `string[]`, not `string|null`. Mock mode: lives in `activeMultiselects` in `useFacetedFilterOptions`. API mode: sent as array via `addAllAttributeFilters` in `ticketApi.js`.
