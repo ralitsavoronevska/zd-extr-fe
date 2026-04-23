@@ -19,7 +19,9 @@ const tomorrowStart = () => {
     return d;
 };
 
-function createInitialFilters() {
+/** Default filter model — exported so `apiLazyInit` can prime the initial list
+ *  fetch with the SAME params the UI is about to apply. */
+export function createInitialFilters() {
     return {
         global: { value: null, matchMode: FilterMatchMode.CONTAINS },
         timestamp: {
@@ -59,6 +61,34 @@ function createInitialFilters() {
     };
 }
 
+/** Pure extractor: takes a PrimeVue filter model, returns flat params the
+ *  API/mock pipelines consume. Exported so non-component code (stores) can
+ *  build params from a detached filter object without a ref. */
+export function extractFilterParams(filters) {
+    return {
+        globalFilter: filters.global?.value || '',
+        ticketid: filters.ticketid?.value,
+        brand: filters.brand?.value ?? [],
+        topic: filters.topic?.value ?? [],
+        vip_level: filters.vip_level?.value ?? [],
+        customer_email: filters.customer_email?.value ?? [],
+        agent_email: filters.agent_email?.value ?? [],
+        _chatTagsString: filters._chatTagsString?.value ?? [],
+        csat_score: filters.csat_score?.value,
+        sentiment: filters.sentiment?.value,
+        sentiment_reason: filters.sentiment_reason?.value,
+        chat_transcript: filters.chat_transcript?.value,
+        email_transcript: filters.email_transcript?.value,
+        summary: filters.summary?.value,
+        startDate: filters.timestamp?.constraints?.[0]?.value,
+        endDate: filters.timestamp?.constraints?.[1]?.value,
+        startedAtStart: filters.started_at?.constraints?.[0]?.value,
+        startedAtEnd: filters.started_at?.constraints?.[1]?.value,
+        updatedAtStart: filters.updated_at?.constraints?.[0]?.value,
+        updatedAtEnd: filters.updated_at?.constraints?.[1]?.value
+    };
+}
+
 export function useTicketFilters() {
     const filters = ref(createInitialFilters());
 
@@ -70,32 +100,6 @@ export function useTicketFilters() {
     });
 
     const activeQuickFilter = ref('today');
-
-    // ── Extract flat filter params from PrimeVue filter model ──
-    function extractFilterParams() {
-        return {
-            globalFilter: filters.value.global?.value || '',
-            ticketid: filters.value.ticketid?.value,
-            brand: filters.value.brand?.value ?? [],
-            topic: filters.value.topic?.value ?? [],
-            vip_level: filters.value.vip_level?.value ?? [],
-            customer_email: filters.value.customer_email?.value ?? [],
-            agent_email: filters.value.agent_email?.value ?? [],
-            _chatTagsString: filters.value._chatTagsString?.value ?? [],
-            csat_score: filters.value.csat_score?.value,
-            sentiment: filters.value.sentiment?.value,
-            sentiment_reason: filters.value.sentiment_reason?.value,
-            chat_transcript: filters.value.chat_transcript?.value,
-            email_transcript: filters.value.email_transcript?.value,
-            summary: filters.value.summary?.value,
-            startDate: filters.value.timestamp?.constraints?.[0]?.value,
-            endDate: filters.value.timestamp?.constraints?.[1]?.value,
-            startedAtStart: filters.value.started_at?.constraints?.[0]?.value,
-            startedAtEnd: filters.value.started_at?.constraints?.[1]?.value,
-            updatedAtStart: filters.value.updated_at?.constraints?.[0]?.value,
-            updatedAtEnd: filters.value.updated_at?.constraints?.[1]?.value
-        };
-    }
 
     // ── Date computed getters/setters for template v-model ──
     const dateComputed = (field, index) =>
@@ -188,7 +192,7 @@ export function useTicketFilters() {
         filters,
         lazyParams,
         activeQuickFilter,
-        extractFilterParams,
+        extractFilterParams: () => extractFilterParams(filters.value),
         fromDate,
         toDate,
         startedAtFrom,

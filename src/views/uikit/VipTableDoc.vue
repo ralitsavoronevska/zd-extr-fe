@@ -1,7 +1,10 @@
 <script setup>
+import { ref } from 'vue';
 import { formatDate } from '@/utils/dateUtils';
 import { useVipAggregation as useMockedVipAggregation } from '@/composables/useMockedVipAggregation';
 import { useVipAggregation as useApiVipAggregation } from '@/composables/useApiVipAggregation';
+import { useTableStore } from '@/stores/tableStore';
+import { useLazyWidgetFetch } from '@/composables/useLazyWidgetFetch';
 
 const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
 
@@ -9,6 +12,13 @@ const CSAT_HIGH_THRESHOLD = 80; // % — green
 const CSAT_MID_THRESHOLD = 50; // % — yellow; below this is red
 
 const { filteredTickets, dateRange, dates, groupedData, hasVipData } = USE_MOCKED ? useMockedVipAggregation() : useApiVipAggregation();
+
+const tableStore = useTableStore();
+
+// ── Lazy-loading scaffold ───────────────────────────────────────────────
+// See decision #13 in Key Architecture Decisions, CLAUDE.md.
+const rootRef = ref(null);
+useLazyWidgetFetch({ rootRef, fetch: tableStore.fetchVipCsat });
 
 function getSegmentRowClass(segment) {
     const map = {
@@ -34,52 +44,56 @@ function getCsatClass(csat) {
 </script>
 
 <template>
-    <div v-if="hasVipData" class="vip-table card mt-8">
-        <!-- Info banner – matches TableDoc pattern -->
-        <div class="dt-info-card card mb-8 p-4">
-            <p v-if="filteredTickets.length > 0" class="inline-block dt-info-p rounded-xl py-2 px-3">
-                Aggregated from <strong>{{ filteredTickets.length }}</strong> filtered tickets (date range: {{ dateRange.start ? formatDate(dateRange.start) : '—' }} to {{ dateRange.end ? formatDate(dateRange.end) : '—' }})
-            </p>
-            <p v-else class="inline-block dt-info-p rounded-xl py-2 px-3">
-                VIP CSAT data (date range: {{ dateRange.start ? formatDate(dateRange.start) : '—' }} to {{ dateRange.end ? formatDate(dateRange.end) : '—' }})
-            </p>
+    <!-- Always render the root so IntersectionObserver has something to observe;
+         the VIP card only materializes once data arrives. -->
+    <div ref="rootRef" class="vip-table-root min-h-[1px]">
+        <div v-if="hasVipData" class="vip-table card mt-8">
+            <!-- Info banner – matches TableDoc pattern -->
+            <div class="dt-info-card card mb-8 p-4">
+                <p v-if="filteredTickets.length > 0" class="inline-block dt-info-p rounded-xl py-2 px-3">
+                    Aggregated from <strong>{{ filteredTickets.length }}</strong> filtered tickets (date range: {{ dateRange.start ? formatDate(dateRange.start) : '—' }} to {{ dateRange.end ? formatDate(dateRange.end) : '—' }})
+                </p>
+                <p v-else class="inline-block dt-info-p rounded-xl py-2 px-3">
+                    VIP CSAT data (date range: {{ dateRange.start ? formatDate(dateRange.start) : '—' }} to {{ dateRange.end ? formatDate(dateRange.end) : '—' }})
+                </p>
+            </div>
+
+            <DataTable
+                :value="groupedData"
+                rowGroupMode="rowspan"
+                groupRowsBy="segment"
+                sortMode="false"
+                sortField="segment"
+                :sortOrder="1"
+                tableStyle="min-width: 50rem; text-align: center;"
+                showGridlines
+                responsiveLayout="scroll"
+                :pt="{
+                    table: { class: 'w-full text-sm text-gray-700 dark:text-gray-300' },
+                    thead: { class: 'bg-gray-100 dark:bg-gray-700' },
+                    tbody: { class: '' },
+                    column: { root: { class: 'border-r last:border-r-0' } }
+                }"
+            >
+                <Column header="Customer Segment" field="segment" :sortable="false" style="min-width: 180px; font-weight: bold; text-align: center; padding: 0">
+                    <template #body="{ data }">
+                        <div :class="getSegmentRowClass(data.segment)" class="p-8">{{ data.segment }}</div>
+                    </template>
+                </Column>
+
+                <!-- Dynamic columns – one set per date -->
+                <Column v-for="{ date, key } in dates" :key="key" :header="formatDate(date)" style="min-width: 140px; text-align: center; vertical-align: text-bottom; padding: 0">
+                    <template #body="{ data }">
+                        <div class="grid grid-cols-1 gap-0 text-sm p-0">
+                            <div class="border-b border-solid border-(--p-datatable-body-cell-border-color)" :class="getCsatClass(data[`csat_${key}`])">CSAT: {{ data[`csat_${key}`] }}</div>
+                            <div class="border-b border-solid border-(--p-datatable-body-cell-border-color)">✓ Good rates: {{ data[`good_${key}`] }}</div>
+                            <div class="border-b border-solid border-(--p-datatable-body-cell-border-color)">✗ Bad rates: {{ data[`bad_${key}`] }}</div>
+                            <div>Rated: {{ data[`rated_${key}`] }}</div>
+                        </div>
+                    </template>
+                </Column>
+            </DataTable>
         </div>
-
-        <DataTable
-            :value="groupedData"
-            rowGroupMode="rowspan"
-            groupRowsBy="segment"
-            sortMode="false"
-            sortField="segment"
-            :sortOrder="1"
-            tableStyle="min-width: 50rem; text-align: center;"
-            showGridlines
-            responsiveLayout="scroll"
-            :pt="{
-                table: { class: 'w-full text-sm text-gray-700 dark:text-gray-300' },
-                thead: { class: 'bg-gray-100 dark:bg-gray-700' },
-                tbody: { class: '' },
-                column: { root: { class: 'border-r last:border-r-0' } } // optional per-column tweaks
-            }"
-        >
-            <Column header="Customer Segment" field="segment" :sortable="false" style="min-width: 180px; font-weight: bold; text-align: center; padding: 0">
-                <template #body="{ data }">
-                    <div :class="getSegmentRowClass(data.segment)" class="p-8">{{ data.segment }}</div>
-                </template>
-            </Column>
-
-            <!-- Dynamic columns – one set per date -->
-            <Column v-for="{ date, key } in dates" :key="key" :header="formatDate(date)" style="min-width: 140px; text-align: center; vertical-align: text-bottom; padding: 0">
-                <template #body="{ data }">
-                    <div class="grid grid-cols-1 gap-0 text-sm p-0">
-                        <div class="border-b border-solid border-(--p-datatable-body-cell-border-color)" :class="getCsatClass(data[`csat_${key}`])">CSAT: {{ data[`csat_${key}`] }}</div>
-                        <div class="border-b border-solid border-(--p-datatable-body-cell-border-color)">✓ Good rates: {{ data[`good_${key}`] }}</div>
-                        <div class="border-b border-solid border-(--p-datatable-body-cell-border-color)">✗ Bad rates: {{ data[`bad_${key}`] }}</div>
-                        <div>Rated: {{ data[`rated_${key}`] }}</div>
-                    </div>
-                </template>
-            </Column>
-        </DataTable>
     </div>
 </template>
 

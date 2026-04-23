@@ -1,6 +1,19 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { computed, ref, shallowRef } from 'vue';
 import { NEGATIVE_SENTIMENTS } from '@/config/mockedEnums';
+import { logger } from '@/utils/logger';
+import { normalizeFilterOptions } from '@/utils/normalization';
+import {
+    buildFilterOptionsParams,
+    buildNarrowedFilterOptionsParams,
+    buildStatsParams,
+    buildTopicChartParams,
+    buildVipCsatParams,
+    fetchFilterOptions,
+    fetchTicketStats,
+    fetchTopicChartData,
+    fetchVipCsatData
+} from '@/services/ticketApi';
 
 // O(1) lookup instead of Array.includes O(n) — called per row (mock mode only)
 const NEGATIVE_SET = new Set(NEGATIVE_SENTIMENTS);
@@ -53,38 +66,111 @@ export const useTableStore = defineStore('table', () => {
     const topicChartData = ref(null);
     const vipCsatData = ref(null);
 
-    // Loading states for aggregation endpoints
+    // Reactive snapshot of the current filter params as extracted by
+    // `useTicketFilters.extractFilterParams`. Pushed by `useTicketTableData`
+    // after every filter mutation; read by lazy-loaded widgets (ChartDoc,
+    // VipTableDoc) so they can fire their own fetches when scrolled into view.
+    const currentFilterParams = ref(null);
+    function setCurrentFilterParams(params) {
+        currentFilterParams.value = params;
+    }
+
+    // Loading flag backed by a counter. Two overlapping calls (e.g. the user
+    // rapidly toggles between ticketid and non-ticketid filters, triggering
+    // both `fetchCoreAggregations` and `fetchFilterOptionsOnly` back-to-back)
+    // could otherwise see the faster one flip the flag to `false` while the
+    // slower is still running. Counter-backed: `true` iff at least one group
+    // fetch is in flight.
     const isAggregationsLoading = ref(false);
+    let _aggregationLoadCount = 0;
+    function incrementAggregationLoading() {
+        _aggregationLoadCount++;
+        isAggregationsLoading.value = true;
+    }
+    function decrementAggregationLoading() {
+        if (_aggregationLoadCount > 0) _aggregationLoadCount--;
+        if (_aggregationLoadCount === 0) isAggregationsLoading.value = false;
+    }
 
-    // Generation counter — prevents stale responses from overwriting fresh data
-    // when the user changes filters faster than the server responds
-    let aggregationGeneration = 0;
+    // Per-fetch generation counters. A group-level counter wasn't enough:
+    // inner writes happen before Promise.allSettled resolves, so a slow
+    // older fetch could overwrite fresher data. Each endpoint now guards
+    // its own write with its own counter.
+    let filterOptionsGeneration = 0;
+    let narrowedFilterOptionsGeneration = 0;
+    let statsGeneration = 0;
+    let topicChartGeneration = 0;
+    let vipCsatGeneration = 0;
 
-    /** FULL options — date-range only, for active field dropdowns. */
+    /** FULL options — date-range only, for active field dropdowns.
+     *  Case-insensitive fields (`vip_level`, `sentiment`, `csat_score`) are
+     *  lowercased + deduped via `normalizeFilterOptions` so the dropdown
+     *  matches the lowercased values on ticket rows and outgoing filter params. */
     async function fetchFilterOptionsFromApi(filters) {
-        const { buildFilterOptionsParams, fetchFilterOptions } = await import('@/services/ticketApi');
-        filterOptions.value = await fetchFilterOptions(buildFilterOptionsParams(filters));
+        const generation = ++filterOptionsGeneration;
+        try {
+            const data = await fetchFilterOptions(buildFilterOptionsParams(filters));
+            if (generation !== filterOptionsGeneration) return;
+            filterOptions.value = normalizeFilterOptions(data);
+        } catch (err) {
+            if (generation === filterOptionsGeneration) {
+                logger.error('fetchFilterOptionsFromApi failed:', err?.message || err);
+            }
+            // Swallow — callers run via Promise.allSettled and don't need the rejection.
+        }
     }
 
     /** NARROWED options — date-range + attribute filters, for inactive field dropdowns. */
     async function fetchNarrowedFilterOptions(filters) {
-        const { buildNarrowedFilterOptionsParams, fetchFilterOptions } = await import('@/services/ticketApi');
-        narrowedFilterOptions.value = await fetchFilterOptions(buildNarrowedFilterOptionsParams(filters));
+        const generation = ++narrowedFilterOptionsGeneration;
+        try {
+            const data = await fetchFilterOptions(buildNarrowedFilterOptionsParams(filters));
+            if (generation !== narrowedFilterOptionsGeneration) return;
+            narrowedFilterOptions.value = normalizeFilterOptions(data);
+        } catch (err) {
+            if (generation === narrowedFilterOptionsGeneration) {
+                logger.error('fetchNarrowedFilterOptions failed:', err?.message || err);
+            }
+        }
     }
 
     async function fetchStats(filters) {
-        const { buildStatsParams, fetchTicketStats } = await import('@/services/ticketApi');
-        stats.value = await fetchTicketStats(buildStatsParams(filters));
+        const generation = ++statsGeneration;
+        try {
+            const data = await fetchTicketStats(buildStatsParams(filters));
+            if (generation !== statsGeneration) return;
+            stats.value = data;
+        } catch (err) {
+            if (generation === statsGeneration) {
+                logger.error('fetchStats failed:', err?.message || err);
+            }
+        }
     }
 
     async function fetchTopicChart(filters) {
-        const { buildTopicChartParams, fetchTopicChartData: apiFetch } = await import('@/services/ticketApi');
-        topicChartData.value = await apiFetch(buildTopicChartParams(filters));
+        const generation = ++topicChartGeneration;
+        try {
+            const data = await fetchTopicChartData(buildTopicChartParams(filters));
+            if (generation !== topicChartGeneration) return;
+            topicChartData.value = data;
+        } catch (err) {
+            if (generation === topicChartGeneration) {
+                logger.error('fetchTopicChart failed:', err?.message || err);
+            }
+        }
     }
 
     async function fetchVipCsat(filters) {
-        const { buildVipCsatParams, fetchVipCsatData: apiFetch } = await import('@/services/ticketApi');
-        vipCsatData.value = await apiFetch(buildVipCsatParams(filters));
+        const generation = ++vipCsatGeneration;
+        try {
+            const data = await fetchVipCsatData(buildVipCsatParams(filters));
+            if (generation !== vipCsatGeneration) return;
+            vipCsatData.value = data;
+        } catch (err) {
+            if (generation === vipCsatGeneration) {
+                logger.error('fetchVipCsat failed:', err?.message || err);
+            }
+        }
     }
 
     /**
@@ -92,23 +178,11 @@ export const useTableStore = defineStore('table', () => {
      * where stats/chart/vip are computed client-side from the single ticket.
      */
     async function fetchFilterOptionsOnly(filters) {
-        const generation = ++aggregationGeneration;
-        isAggregationsLoading.value = true;
+        incrementAggregationLoading();
         try {
-            const results = await Promise.allSettled([fetchFilterOptionsFromApi(filters), fetchNarrowedFilterOptions(filters)]);
-
-            if (generation !== aggregationGeneration) return;
-
-            results.forEach((result, i) => {
-                if (result.status === 'rejected') {
-                    const names = ['filterOptions', 'narrowedFilterOptions'];
-                    console.error(`Failed to fetch ${names[i]}:`, result.reason?.message || result.reason);
-                }
-            });
+            await Promise.allSettled([fetchFilterOptionsFromApi(filters), fetchNarrowedFilterOptions(filters)]);
         } finally {
-            if (generation === aggregationGeneration) {
-                isAggregationsLoading.value = false;
-            }
+            decrementAggregationLoading();
         }
     }
 
@@ -117,8 +191,19 @@ export const useTableStore = defineStore('table', () => {
      * Used when the user filters by ticketid — the backend doesn't honor the ticketid
      * query param on aggregation endpoints, so we compute the aggregation shapes
      * client-side to keep the charts/stats/VIP widgets in sync with the table.
+     *
+     * Bumps `topicChartGeneration` / `vipCsatGeneration` so any in-flight
+     * widget-initiated fetch (from ChartDoc / VipTableDoc's lazy path) is
+     * discarded when it returns — otherwise the broader backend response
+     * would overwrite this single-ticket override.
      */
     function setSingleTicketAggregations(ticket) {
+        // Invalidate any in-flight widget fetch first, so even a stats/null
+        // short-circuit correctly cancels pending writes.
+        topicChartGeneration++;
+        vipCsatGeneration++;
+        statsGeneration++;
+
         if (!ticket) {
             stats.value = null;
             topicChartData.value = null;
@@ -201,28 +286,18 @@ export const useTableStore = defineStore('table', () => {
     }
 
     /**
-     * Fetches all aggregation endpoints in parallel.
+     * Fetches the always-visible aggregations (filter options × 2 + stats).
+     * Topic chart and VIP CSAT are fetched by their owner widgets
+     * (ChartDoc / VipTableDoc) when they scroll into view — see decision #13
+     * in Key Architecture Decisions, CLAUDE.md.
      * Accepts raw filter object from extractFilterParams() — each endpoint builds its own params.
      */
-    async function fetchAllAggregations(filters) {
-        const generation = ++aggregationGeneration;
-        isAggregationsLoading.value = true;
+    async function fetchCoreAggregations(filters) {
+        incrementAggregationLoading();
         try {
-            const results = await Promise.allSettled([fetchFilterOptionsFromApi(filters), fetchNarrowedFilterOptions(filters), fetchStats(filters), fetchTopicChart(filters), fetchVipCsat(filters)]);
-
-            // Discard results if a newer request was fired while we were waiting
-            if (generation !== aggregationGeneration) return;
-
-            results.forEach((result, i) => {
-                if (result.status === 'rejected') {
-                    const names = ['filterOptions', 'narrowedFilterOptions', 'stats', 'topicChartData', 'vipCsatData'];
-                    console.error(`Failed to fetch ${names[i]}:`, result.reason?.message || result.reason);
-                }
-            });
+            await Promise.allSettled([fetchFilterOptionsFromApi(filters), fetchNarrowedFilterOptions(filters), fetchStats(filters)]);
         } finally {
-            if (generation === aggregationGeneration) {
-                isAggregationsLoading.value = false;
-            }
+            decrementAggregationLoading();
         }
     }
 
@@ -238,13 +313,15 @@ export const useTableStore = defineStore('table', () => {
         stats,
         topicChartData,
         vipCsatData,
+        currentFilterParams,
+        setCurrentFilterParams,
         isAggregationsLoading,
         fetchFilterOptionsFromApi,
         fetchNarrowedFilterOptions,
         fetchStats,
         fetchTopicChart,
         fetchVipCsat,
-        fetchAllAggregations,
+        fetchCoreAggregations,
         fetchFilterOptionsOnly,
         setSingleTicketAggregations
     };

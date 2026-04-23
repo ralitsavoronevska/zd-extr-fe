@@ -2,12 +2,12 @@ import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useTicketDataStore } from '@/stores/ticketData';
 import { useTableStore } from '@/stores/tableStore';
-import { useAuthStore } from '@/stores/auth';
 import { useFacetedFilterOptions } from '@/composables/useFacetedFilterOptions';
 import { useCsvExport } from '@/composables/useCsvExport';
 import { applyMockedTicketFilters } from '@/utils/mockedTicketFilters';
 import { buildTicketListParams, buildExportParams, exportTicketsCsv } from '@/services/ticketApi';
 import { formatDate } from '@/utils/dateUtils';
+import { logger } from '@/utils/logger';
 import { PAGE_SIZE_DEFAULT, FILTER_DEBOUNCE_MS } from '@/composables/useTicketFilters';
 
 const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
@@ -25,9 +25,7 @@ export function useTicketTableData(filterState, dataTableRef) {
 
     const tableStore = useTableStore();
     const ticketDataStore = useTicketDataStore();
-    const authStore = useAuthStore();
     const { isLoading } = storeToRefs(ticketDataStore);
-    const { isAdmin } = storeToRefs(authStore);
 
     // ════════════════════════════════════════════════════════════════════
     //  MOCK MODE — client-side filtering, pagination, faceted options
@@ -75,6 +73,11 @@ export function useTicketTableData(filterState, dataTableRef) {
     // ════════════════════════════════════════════════════════════════════
     let fetchDataDebounceTimer = null;
     let initialFetchDone = false;
+    // Filter changes that arrive while the initial load is still pending get
+    // swallowed by the `!initialFetchDone` guard below. This flag replays them
+    // once the initial fetch resolves so the user doesn't end up looking at
+    // stale data they typed over.
+    let pendingFilterChange = false;
 
     async function fetchData() {
         if (USE_MOCKED) return;
@@ -87,13 +90,17 @@ export function useTicketTableData(filterState, dataTableRef) {
             sortOrder: lazyParams.value.sortOrder
         });
 
+        // Publish the fresh filter snapshot so lazy-loaded widgets (ChartDoc,
+        // VipTableDoc) can re-fetch if they're already mounted and visible.
+        tableStore.setCurrentFilterParams(filterParams);
+
         if (filterParams.ticketid) {
             // ticketid lookup — backend doesn't honor ticketid on stats/chart/vip endpoints.
             // Fetch the single ticket + filter-options only, then compute aggregations client-side.
             await Promise.all([ticketDataStore.fetchTickets(listParams), tableStore.fetchFilterOptionsOnly(filterParams)]);
             tableStore.setSingleTicketAggregations(ticketDataStore.tickets[0] ?? null);
         } else {
-            await Promise.all([ticketDataStore.fetchTickets(listParams), tableStore.fetchAllAggregations(filterParams)]);
+            await Promise.all([ticketDataStore.fetchTickets(listParams), tableStore.fetchCoreAggregations(filterParams)]);
 
             // Edge case: the user applied a filter that isn't honored by the aggregation
             // endpoints (e.g. customer_email, topic, brand on /api/vip-csat-data/) so the
@@ -115,16 +122,20 @@ export function useTicketTableData(filterState, dataTableRef) {
         }, FILTER_DEBOUNCE_MS);
     }
 
-    // Watch filter changes in API mode — debounced.
-    // Skip the first emission to avoid duplicating the onMounted fetch.
+    // Watch filter state directly (deep) — cheaper and more idiomatic than
+    // stringifying on every tick. If a change arrives before the initial
+    // load finishes, remember it so we can flush once initialFetchDone flips.
     if (!USE_MOCKED) {
         watch(
-            () => JSON.stringify(extractFilterParams()),
+            filters,
             () => {
-                if (!initialFetchDone) return;
+                if (!initialFetchDone) {
+                    pendingFilterChange = true;
+                    return;
+                }
                 debouncedFetchData();
             },
-            { deep: false }
+            { deep: true }
         );
     }
 
@@ -149,7 +160,10 @@ export function useTicketTableData(filterState, dataTableRef) {
     //   Active filter field  → FULL options from /api/ticket-filter-options/ (date-range only)
     //   Inactive filter fields → NARROWED options from /api/ticket-filter-options/ (date-range + attribute filters)
     if (!USE_MOCKED) {
-        const sorted = (obj, key) => [...(obj?.[key] ?? [])].sort((a, b) => String(a).localeCompare(String(b)));
+        // Pin locale to 'en' with base sensitivity so the sort order is stable
+        // across user locales (default `localeCompare` would flip e.g. dotted
+        // vs. dotless `i` ordering between `en` and `tr`).
+        const sorted = (obj, key) => [...(obj?.[key] ?? [])].sort((a, b) => String(a).localeCompare(String(b), 'en', { sensitivity: 'base' }));
 
         /**
          * Smart computed: if this field has an active selection, show full options
@@ -191,7 +205,7 @@ export function useTicketTableData(filterState, dataTableRef) {
                       const params = buildExportParams(extractFilterParams());
                       await exportTicketsCsv(params);
                   } catch (err) {
-                      console.error('CSV export failed:', err);
+                      logger.error('CSV export failed:', err);
                   }
               }
           };
@@ -207,6 +221,9 @@ export function useTicketTableData(filterState, dataTableRef) {
         if (!USE_MOCKED && event?.sortField) {
             lazyParams.value.sortField = event.sortField;
             lazyParams.value.sortOrder = event.sortOrder ?? -1;
+            // Reset to page 1 — sorting while on page N shows a misleading
+            // slice of the newly-ordered results.
+            lazyParams.value.page = 1;
             fetchData();
         }
     }
@@ -227,10 +244,27 @@ export function useTicketTableData(filterState, dataTableRef) {
 
     // ── Init ──
     onMounted(async () => {
-        await ticketDataStore.lazyInit();
-        if (!USE_MOCKED) {
-            await tableStore.fetchAllAggregations(extractFilterParams());
-            initialFetchDone = true;
+        if (USE_MOCKED) {
+            await ticketDataStore.lazyInit();
+            return;
+        }
+
+        // Pull the filter snapshot ONCE and thread it through the list prefetch
+        // (inside lazyInit) and the core aggregation fetch. Previously the two
+        // paths built params from different sources, producing a transient
+        // "stats show N but table shows N-1" on first paint. Topic chart and
+        // VIP CSAT fetches are owned by their widgets and fire when scrolled
+        // into view — see decision #13 in Key Architecture Decisions, CLAUDE.md.
+        const filterParams = extractFilterParams();
+        tableStore.setCurrentFilterParams(filterParams);
+        await Promise.all([ticketDataStore.lazyInit(filterParams), tableStore.fetchCoreAggregations(filterParams)]);
+        initialFetchDone = true;
+
+        // Flush any filter change the user made while the initial fetch was
+        // still in flight — otherwise the change is silently dropped.
+        if (pendingFilterChange) {
+            pendingFilterChange = false;
+            debouncedFetchData();
         }
     });
 
@@ -241,7 +275,6 @@ export function useTicketTableData(filterState, dataTableRef) {
 
     return {
         isLoading,
-        isAdmin,
         tableData,
         totalRecords,
         availableTopics,

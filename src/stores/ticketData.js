@@ -1,14 +1,15 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { ref, shallowRef } from 'vue';
-import { emptyToNone } from '@/utils/normalization';
+import { emptyToNone, LOWERCASE_FIELDS } from '@/utils/normalization';
+import { logger } from '@/utils/logger';
+import { PAGE_SIZE_DEFAULT, createInitialFilters, extractFilterParams } from '@/composables/useTicketFilters';
+import api from '@/services/authApi';
+import { buildTicketListParams, fetchTicketDetail, fetchTicketList } from '@/services/ticketApi';
 
 const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
 
 // ── Fields that get emptyToNone normalization (short categorical fields) ──
 const NORMALIZE_FIELDS = ['topic', 'brand', 'vip_level', 'customer_email', 'agent_email', 'csat_score', 'sentiment'];
-
-// ── Fields the API returns in Title Case that the frontend expects lowercase ──
-const LOWERCASE_FIELDS = ['vip_level', 'sentiment', 'csat_score'];
 
 // ── Helpers ──
 const toArray = (value) => {
@@ -28,13 +29,25 @@ function buildChatTagsString(tags) {
         .join(', ');
 }
 
+// ── emptyToNone + lowercase pass shared by both mock and API normalizers ──
+// Mock mode gets the lowercase pass too so its filter dropdowns don't pick
+// up "Gold" vs "gold" duplicates from mixed-case fixture data (same concern
+// as `normalizeFilterOptions` applies on the API side).
+function normalizeCategoricalFields(ticket) {
+    const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
+    for (const field of LOWERCASE_FIELDS) {
+        if (typeof normalized[field] === 'string' && normalized[field] !== 'none') {
+            normalized[field] = normalized[field].toLowerCase();
+        }
+    }
+    return normalized;
+}
+
 // ── Process a single raw ticket into the shape the table expects (mock mode) ──
 function mockedProcessTicket(ticket) {
-    const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
-
     return {
         ...ticket,
-        ...normalized,
+        ...normalizeCategoricalFields(ticket),
         timestamp: new Date(ticket.timestamp),
         started_at: ticket.started_at ? new Date(ticket.started_at) : null,
         updated_at: ticket.updated_at ? new Date(ticket.updated_at) : null,
@@ -51,17 +64,9 @@ function mockedProcessTicket(ticket) {
  * - build _chatTagsString from chat_tags[] for filter compatibility
  */
 function normalizeApiRecord(ticket) {
-    const normalized = Object.fromEntries(NORMALIZE_FIELDS.map((field) => [field, emptyToNone(ticket[field])]));
-
-    for (const field of LOWERCASE_FIELDS) {
-        if (typeof normalized[field] === 'string' && normalized[field] !== 'none') {
-            normalized[field] = normalized[field].toLowerCase();
-        }
-    }
-
     return {
         ...ticket,
-        ...normalized,
+        ...normalizeCategoricalFields(ticket),
         ticketid: String(ticket.ticketid),
         timestamp: ticket.timestamp ? new Date(ticket.timestamp) : null,
         started_at: ticket.started_at ? new Date(ticket.started_at) : null,
@@ -98,6 +103,11 @@ export const useTicketDataStore = defineStore('ticketData', () => {
     let isInitialized = false;
     let initPromise = null;
 
+    // Generation counter — matches tableStore's pattern. Guards against stale
+    // `fetchTickets` responses overwriting fresh data when the user pages/filters
+    // faster than the server responds.
+    let fetchGeneration = 0;
+
     // ════════════════════════════════════════════════════════════════════
     //  MOCK MODE — existing client-side logic (loads all data, IDB cache)
     // ════════════════════════════════════════════════════════════════════
@@ -116,20 +126,26 @@ export const useTicketDataStore = defineStore('ticketData', () => {
         mockedFullProcessedTickets.value = result;
     }
 
+    /** Strip transient per-row fields (`_mockedSearchIndex`) before persisting
+     *  to IDB. The index is lazily rebuilt on demand and can balloon the
+     *  cache into several MB of unused strings. */
+    function stripTransientFields(tickets) {
+        return tickets.map(({ _mockedSearchIndex, ...rest }) => rest);
+    }
+
     async function mockedFetchAndCache() {
-        const { default: api } = await import('@/services/authApi');
         const response = await api.get('/api/ticket-conversation-summaries/');
         const raw = Array.isArray(response.data) ? response.data : (response.data.results ?? []);
         await mockedProcessRecords(raw);
         const { setCachedTickets } = await import('@/services/mockedTicketCache');
-        setCachedTickets(mockedFullProcessedTickets.value).catch((err) => console.warn('IDB write failed:', err));
+        setCachedTickets(stripTransientFields(mockedFullProcessedTickets.value)).catch((err) => logger.warn('IDB write failed:', err));
     }
 
     async function mockedRefreshInBackground() {
         try {
             await mockedFetchAndCache();
         } catch (err) {
-            console.warn('Background refresh failed (non-fatal):', err);
+            logger.warn('Background refresh failed (non-fatal):', err);
         }
     }
 
@@ -159,7 +175,7 @@ export const useTicketDataStore = defineStore('ticketData', () => {
                     isInitialized = true;
 
                     if (isCacheStale(cached)) {
-                        mockedRefreshInBackground().catch((e) => console.warn('Background refresh failed:', e));
+                        mockedRefreshInBackground().catch((e) => logger.warn('Background refresh failed:', e));
                     }
                     return;
                 }
@@ -169,7 +185,7 @@ export const useTicketDataStore = defineStore('ticketData', () => {
             } catch (innerErr) {
                 fetchError.value = innerErr;
                 isInitialized = false;
-                console.error('useTicketDataStore: failed to load tickets (mock mode)', innerErr);
+                logger.error('useTicketDataStore: failed to load tickets (mock mode)', innerErr);
             }
         } finally {
             isLoading.value = false;
@@ -181,6 +197,7 @@ export const useTicketDataStore = defineStore('ticketData', () => {
     // ════════════════════════════════════════════════════════════════════
 
     async function fetchTickets(params) {
+        const generation = ++fetchGeneration;
         isLoading.value = true;
         fetchError.value = null;
         try {
@@ -189,8 +206,8 @@ export const useTicketDataStore = defineStore('ticketData', () => {
             // then wrap the single result in the paginated list shape the DataTable expects.
             if (params.ticketid) {
                 try {
-                    const { fetchTicketDetail } = await import('@/services/ticketApi');
                     const data = await fetchTicketDetail(params.ticketid);
+                    if (generation !== fetchGeneration) return; // stale — a newer request is in flight
                     const normalized = normalizeApiRecord(data);
                     // Detail endpoint returns the actual transcript texts (not the has_* booleans);
                     // derive the booleans from content presence so the "View" buttons render correctly.
@@ -200,6 +217,7 @@ export const useTicketDataStore = defineStore('ticketData', () => {
                     totalCount.value = 1;
                 } catch (err) {
                     if (err?.response?.status === 404) {
+                        if (generation !== fetchGeneration) return;
                         tickets.value = [];
                         totalCount.value = 0;
                     } else {
@@ -209,43 +227,67 @@ export const useTicketDataStore = defineStore('ticketData', () => {
                 return;
             }
 
-            const { fetchTicketList } = await import('@/services/ticketApi');
             const data = (await fetchTicketList(params)) ?? {};
+            if (generation !== fetchGeneration) return; // stale
             tickets.value = (data.results || []).map(normalizeApiRecord);
             totalCount.value = data.count || 0;
         } catch (err) {
-            fetchError.value = err;
-            console.error('useTicketDataStore: fetchTickets failed', err);
+            if (generation === fetchGeneration) {
+                fetchError.value = err;
+                logger.error('useTicketDataStore: fetchTickets failed', err);
+            }
         } finally {
-            isLoading.value = false;
+            if (generation === fetchGeneration) {
+                isLoading.value = false;
+            }
         }
     }
 
     async function fetchTicketById(ticketId) {
-        const { fetchTicketDetail } = await import('@/services/ticketApi');
         const data = await fetchTicketDetail(ticketId);
         return normalizeApiRecord(data);
     }
 
-    async function apiLazyInit() {
+    async function apiLazyInit(initialFilterParams) {
+        // Share `fetchGeneration` with `fetchTickets` so a later user-initiated
+        // fetch (e.g. a filter change flushed via pendingFilterChange) correctly
+        // supersedes a slow apiLazyInit response, even if the init response
+        // lands last.
+        const generation = ++fetchGeneration;
         isLoading.value = true;
         fetchError.value = null;
         try {
-            const { buildTicketListParams, fetchTicketList } = await import('@/services/ticketApi');
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const params = buildTicketListParams({ startDate: today, endDate: new Date() }, { page: 1, rows: 5, sortField: 'timestamp', sortOrder: -1 });
+            // Unify with the UI's initial filter state so the list fetch and
+            // the aggregation fetches ([useTicketTableData.onMounted]) hit the
+            // same date window. Falling back to `createInitialFilters()` keeps
+            // the guard-side prefetch call (which has no ref yet) consistent.
+            const filterParams = initialFilterParams ?? extractFilterParams(createInitialFilters());
+            const params = buildTicketListParams(filterParams, {
+                page: 1,
+                rows: PAGE_SIZE_DEFAULT,
+                sortField: 'timestamp',
+                sortOrder: -1
+            });
             const data = (await fetchTicketList(params)) ?? {};
+            if (generation !== fetchGeneration) {
+                // Newer fetch already owns `tickets` — still mark initialized
+                // so the next guard hit doesn't redundantly re-fire lazyInit.
+                isInitialized = true;
+                return;
+            }
             tickets.value = (data.results || []).map(normalizeApiRecord);
             totalCount.value = data.count || 0;
             isInitialized = true;
         } catch (err) {
-            fetchError.value = err;
-            isInitialized = false;
-            console.error('useTicketDataStore: apiLazyInit failed', err);
+            if (generation === fetchGeneration) {
+                fetchError.value = err;
+                isInitialized = false;
+                logger.error('useTicketDataStore: apiLazyInit failed', err);
+            }
         } finally {
-            isLoading.value = false;
+            if (generation === fetchGeneration) {
+                isLoading.value = false;
+            }
         }
     }
 
@@ -253,11 +295,11 @@ export const useTicketDataStore = defineStore('ticketData', () => {
     //  SHARED — lazyInit dispatches to the correct mode
     // ════════════════════════════════════════════════════════════════════
 
-    async function lazyInit() {
+    async function lazyInit(initialFilterParams) {
         if (isInitialized) return;
         if (initPromise) return initPromise;
 
-        initPromise = (USE_MOCKED ? mockedLazyInit() : apiLazyInit()).finally(() => {
+        initPromise = (USE_MOCKED ? mockedLazyInit() : apiLazyInit(initialFilterParams)).finally(() => {
             initPromise = null;
         });
 

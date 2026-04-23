@@ -107,7 +107,9 @@ export function useFacetedFilterOptions(filters, tickets) {
             }
         }
 
-        const sortFn = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+        // Pin locale to 'en' so sort order is stable regardless of the user's
+        // browser locale (mirrors `sorted` in useTicketTableData).
+        const sortFn = (a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' });
 
         const result = {
             topics: [...topics].sort(sortFn),
