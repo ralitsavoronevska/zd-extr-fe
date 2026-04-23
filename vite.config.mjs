@@ -61,23 +61,35 @@ export default defineConfig(({ mode }) => {
 
                     const hashToOriginal = {};
 
-                    for (const key of Object.keys(bundle)) {
-                        if (hashedFontRE.test(key)) {
-                            const ext = key.match(/\.(eot|svg|ttf|woff2?)$/)[0];
-                            hashToOriginal[key.split('/').pop()] = `primeicons${ext}`;
-                            delete bundle[key];
+                    // First pass: collect + remove font assets safely
+                    for (const fileName of Object.keys(bundle)) {
+                        if (hashedFontRE.test(fileName)) {
+                            const extMatch = fileName.match(/\.(eot|svg|ttf|woff2?)$/);
+                            if (!extMatch) continue;
+
+                            const ext = extMatch[0];
+                            const baseName = fileName.split('/').pop();
+
+                            hashToOriginal[baseName] = `primeicons${ext}`;
+
+                            delete bundle[fileName];
                         }
                     }
 
+                    // Second pass: rewrite CSS references
                     // Rewrite CSS url() references from hashed assets to /zd-extr-fe/fonts/primeicons/
-                    if (bundle[key].type === 'asset' && key.endsWith('.css')) {
-                        let css = bundle[key].source;
+                    for (const fileName of Object.keys(bundle)) {
+                        const chunk = bundle[fileName];
 
-                        for (const [hashed, original] of Object.entries(hashToOriginal)) {
-                            css = css.replaceAll(hashed, `../fonts/primeicons/${original}`);
+                        if (chunk.type === 'asset' && fileName.endsWith('.css')) {
+                            let css = chunk.source;
+
+                            for (const [hashed, original] of Object.entries(hashToOriginal)) {
+                                css = css.replaceAll(hashed, `../fonts/primeicons/${original}`);
+                            }
+
+                            chunk.source = css;
                         }
-
-                        bundle[key].source = css;
                     }
                 }
             }
