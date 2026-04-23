@@ -39,13 +39,11 @@ export default defineConfig(({ mode }) => {
             {
                 name: 'exclude-mock-data',
                 enforce: 'pre',
-                resolveId(source) {
-                    if (source.includes('mocked-ticket-summaries') && !this.meta.watchMode && !useMocked) {
-                        return '\0mock-empty';
-                    }
-                },
                 load(id) {
-                    if (id === '\0mock-empty') return 'export default []';
+                    if (id.includes('mocked-ticket-summaries') && !this.meta.watchMode && !useMocked) {
+                        // Inline module → no chunk generated
+                        return 'export default []';
+                    }
                 }
             },
 
