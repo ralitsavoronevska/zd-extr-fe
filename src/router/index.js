@@ -1,5 +1,8 @@
 import { useAuthStore } from '@/stores/auth';
 import { createRouter, createWebHistory } from 'vue-router';
+import { logger } from '@/utils/logger';
+
+const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE === 'true';
 
 const routes = [
     {
@@ -34,15 +37,25 @@ const router = createRouter({
     scrollBehavior: () => ({ top: 0 })
 });
 
-router.beforeEach((to) => {
+router.beforeEach((to, from) => {
     const authStore = useAuthStore();
 
+    // Check authentication requirement
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
         return { name: 'login', query: to.path !== '/' ? { redirect: to.fullPath } : {} };
     }
 
+    // Check guest requirement (redirect authenticated users away from login)
     if (to.meta.requiresGuest && authStore.isAuthenticated) {
         return { name: 'home' };
+    }
+
+    // Check role requirement (Firebase mode only)
+    if (USE_FIREBASE && to.meta.requiredRole && authStore.isAuthenticated) {
+        if (!authStore.hasRole(to.meta.requiredRole)) {
+            logger.warn(`User ${authStore.user?.email} lacks required role '${to.meta.requiredRole}' for route '${to.path}'`);
+            return { name: 'access-denied' };
+        }
     }
 
     // No prefetch here. `useTicketTableData.onMounted` is the single owner of

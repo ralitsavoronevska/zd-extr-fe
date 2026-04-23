@@ -1,5 +1,6 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useAuthStore } from '@/stores/auth';
 import { useTicketDataStore } from '@/stores/ticketData';
 import { useTableStore } from '@/stores/tableStore';
 import { useFacetedFilterOptions } from '@/composables/useFacetedFilterOptions';
@@ -11,6 +12,7 @@ import { logger } from '@/utils/logger';
 import { PAGE_SIZE_DEFAULT, FILTER_DEBOUNCE_MS } from '@/composables/useTicketFilters';
 
 const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
+const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE === 'true';
 
 /**
  * Dual-mode data pipeline for the ticket DataTable.
@@ -23,9 +25,20 @@ const USE_MOCKED = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
 export function useTicketTableData(filterState, dataTableRef) {
     const { filters, lazyParams, extractFilterParams, resetFilters, applyQuickDateFilter } = filterState;
 
+    const authStore = useAuthStore();
     const tableStore = useTableStore();
     const ticketDataStore = useTicketDataStore();
     const { isLoading } = storeToRefs(ticketDataStore);
+
+    const shouldMaskCustomerEmails = computed(
+        () => USE_MOCKED && USE_FIREBASE && authStore.role !== 'admin'
+    );
+
+    const maskCustomerEmail = (ticket) => ({
+        ...ticket,
+        customer_email:
+            ticket.customer_email && ticket.customer_email !== 'none' ? '*****' : ticket.customer_email
+    });
 
     // ════════════════════════════════════════════════════════════════════
     //  MOCK MODE — client-side filtering, pagination, faceted options
@@ -51,7 +64,9 @@ export function useTicketTableData(filterState, dataTableRef) {
         availableTopics = faceted.availableTopics;
         availableBrands = faceted.availableBrands;
         availableVipLevels = faceted.availableVipLevels;
-        availableCustomerEmails = faceted.availableCustomerEmails;
+        availableCustomerEmails = computed(() =>
+            shouldMaskCustomerEmails.value ? [] : faceted.availableCustomerEmails.value
+        );
         availableAgentEmails = faceted.availableAgentEmails;
         availableChatTags = faceted.availableChatTags;
         availableSentiments = faceted.availableSentiments;
@@ -147,7 +162,10 @@ export function useTicketTableData(filterState, dataTableRef) {
     // "*****" or a similar placeholder). The frontend just renders whatever the API
     // returns — no client-side masking pass.
     const tableData = computed(() => {
-        if (USE_MOCKED) return mockedPaginatedTickets?.value ?? [];
+        if (USE_MOCKED) {
+            const rows = mockedPaginatedTickets?.value ?? [];
+            return shouldMaskCustomerEmails.value ? rows.map(maskCustomerEmail) : rows;
+        }
         return ticketDataStore.tickets;
     });
 
@@ -196,8 +214,16 @@ export function useTicketTableData(filterState, dataTableRef) {
         return !!filters.value.ticketid?.value;
     });
 
+    const exportRows = USE_MOCKED
+        ? computed(() =>
+              shouldMaskCustomerEmails.value
+                  ? mockedFilteredTickets.value.map(maskCustomerEmail)
+                  : mockedFilteredTickets.value
+          )
+        : null;
+
     const { exportToCSV } = USE_MOCKED
-        ? useCsvExport(dataTableRef, mockedFilteredTickets, formatDate)
+        ? useCsvExport(dataTableRef, exportRows, formatDate)
         : {
               exportToCSV: async () => {
                   if (isExportDisabled.value) return;

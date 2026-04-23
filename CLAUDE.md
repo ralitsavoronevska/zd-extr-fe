@@ -405,4 +405,4 @@ Cumulative counts seen when clicking the quick-filter buttons: Today 308, Last 7
 - **`!important` inside CSS `var()` is invalid** — silently ignored by browsers. Override PrimeVue tokens by redefining the CSS variable, not with `!important` inside the value.
 - **Chart topic limit** — `useChartAggregations.js` caps charts at `TOP_TOPICS_LIMIT = 100` topics (sorted by total desc). Chrome's max canvas width is 32,767px; at 48px/bar, exceeding ~682 bars silently breaks the canvas. 100 is a safe, readable default.
 - **Chart y-axis locks (`ChartDoc.vue`)** — the `% Negative Chats per Topic` line chart is locked to `min: 0, max: 100` with a `%` tick suffix; the `Number of Chats` bar chart uses `beginAtZero: true, suggestedMax: 1, precision: 0`. Without these, Chart.js auto-scales to `-1 → 1` (or fractional ticks) when every value is 0 or when there's a single row — which is common on narrow filters.
-- **Git remote**: `origin` = `rvoronevska-sbt/zd-extr-fe`. Single repo — push to `origin`.
+- **Git remote**: `origin` should point to the project repository. Single repo — push to `origin`.

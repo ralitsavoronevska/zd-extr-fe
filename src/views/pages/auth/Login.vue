@@ -10,17 +10,19 @@ import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Password from 'primevue/password';
 
+const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE === 'true';
+
 const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 
-const username = ref('');
+const emailOrUsername = ref('');
 const password = ref('');
 const passwordRef = ref(null);
 const formError = ref(''); // local error message (clears on input change)
 const shake = ref(false); // subtle shake animation on failure
 
-watch([username, password], () => {
+watch([emailOrUsername, password], () => {
     formError.value = '';
     authStore.clearError();
 });
@@ -44,7 +46,7 @@ async function handleLogin() {
     authStore.clearError();
 
     try {
-        const result = await authStore.login(username.value, password.value);
+        const result = await authStore.login(emailOrUsername.value, password.value);
 
         if (result.success) {
             // Success → redirect (validated to block open-redirect phishing)
@@ -52,7 +54,7 @@ async function handleLogin() {
         }
     } catch (err) {
         // Failure → show error message + shake effect
-        formError.value = authStore.error || err.message || 'Invalid username or password';
+        formError.value = authStore.error || err.message || 'Invalid credentials';
         shake.value = true;
 
         // Remove shake after animation
@@ -77,16 +79,27 @@ async function handleLogin() {
                         </div>
 
                         <form @submit.prevent="handleLogin" v-if="!authStore.isLoading" class="space-y-6">
-                            <!-- Username -->
+                            <!-- Email / Username -->
                             <div>
-                                <label for="username1" class="block text-surface-900 dark:text-surface-0 text-xl font-medium mb-2"> Username </label>
-                                <InputText id="username1" type="text" placeholder="Username" class="w-full md:w-[30rem]" v-model="username" autocomplete="username" required autofocus />
+                                <label for="emailOrUsername1" class="block text-surface-900 dark:text-surface-0 text-xl font-medium mb-2">
+                                    {{ USE_FIREBASE ? 'Email' : 'Username' }}
+                                </label>
+                                <InputText 
+                                    id="emailOrUsername1" 
+                                    :type="USE_FIREBASE ? 'email' : 'text'" 
+                                    :placeholder="USE_FIREBASE ? 'Email address' : 'Username'" 
+                                    class="w-full md:w-120" 
+                                    v-model="emailOrUsername" 
+                                    :autocomplete="USE_FIREBASE ? 'email' : 'username'"
+                                    required 
+                                    autofocus 
+                                />
                             </div>
 
                             <!-- Password -->
                             <div>
                                 <label for="password1" class="block text-surface-900 dark:text-surface-0 font-medium text-xl mb-2"> Password </label>
-                                <Password id="password1" ref="passwordRef" v-model="password" placeholder="Password" :toggleMask="true" class="w-full md:w-[30rem]" fluid :feedback="false" required autocomplete="current-password" />
+                                <Password id="password1" ref="passwordRef" v-model="password" placeholder="Password" :toggleMask="true" class="w-full md:w-120" fluid :feedback="false" required autocomplete="current-password" />
                             </div>
 
                             <!-- Error Message -->
@@ -95,7 +108,7 @@ async function handleLogin() {
                             </div>
 
                             <!-- Submit Button -->
-                            <Button type="submit" label="Sign In" class="w-full" :loading="authStore.isLoading" :disabled="authStore.isLoading || !username || !password" />
+                            <Button type="submit" label="Sign In" class="w-full" :loading="authStore.isLoading" :disabled="authStore.isLoading || !emailOrUsername || !password" />
                         </form>
 
                         <!-- Loading state overlay -->

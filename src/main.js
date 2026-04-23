@@ -6,13 +6,25 @@ import router from './router';
 
 import Aura from '@primeuix/themes/aura';
 import PrimeVue from 'primevue/config';
-import ConfirmationService from 'primevue/confirmationservice';
-import ToastService from 'primevue/toastservice';
 
 import { useAuthStore } from '@/stores/auth';
+import { logger } from '@/utils/logger';
 
 import '@/assets/tailwind.css';
 import '@/assets/styles.scss';
+
+// Initialize Firebase if VITE_USE_FIREBASE is set
+const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE === 'true';
+if (USE_FIREBASE) {
+    try {
+        // Dynamically import and initialize Firebase
+        await import('@/firebase');
+        logger.info('Firebase initialized in main.js');
+    } catch (err) {
+        logger.error('Failed to initialize Firebase:', err.message);
+        // Continue without Firebase if initialization fails
+    }
+}
 
 const app = createApp(App);
 
@@ -26,19 +38,9 @@ app.use(PrimeVue, {
         options: {
             darkModeSelector: '.app-dark'
         }
-    },
-    locale: {
-        matchAll: 'Match All (AND)', // instead of "Match All"
-        matchAny: 'Match Any (OR)' // instead of "Match Any"
-        // addRule: 'Add another condition',
-        // removeRule: 'Remove condition',
-        // clear: 'Reset',
-        // apply: 'Filter'
     }
 });
 
-app.use(ToastService);
-app.use(ConfirmationService);
 
 const authStore = useAuthStore();
 authStore.initializeAuth();
