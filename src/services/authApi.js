@@ -5,7 +5,7 @@ import { logger } from '@/utils/logger';
 // The dev Vite proxy forwards /api/* to VITE_API_URL.
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL || '',
-    timeout: 10000,
+    // timeout: 10000,
     paramsSerializer: {
         // Serialize arrays as repeated params: topic=X&topic=Y (not topic[]=X)
         indexes: null
