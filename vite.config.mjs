@@ -5,6 +5,8 @@ import { fileURLToPath, URL } from 'node:url';
 import Components from 'unplugin-vue-components/vite';
 import { defineConfig } from 'vite';
 
+const useMocked = import.meta.env.VITE_USE_MOCKED_DATA === 'true';
+
 export default defineConfig({
     // base: process.env.NODE_ENV === 'production' ? 'localhost' : '/',
     base: '/zd-extr-fe/', // Uncomment and set this if deploying to a subdirectory (e.g., GitHub Pages)
@@ -34,7 +36,7 @@ export default defineConfig({
             name: 'exclude-mock-data',
             enforce: 'pre',
             resolveId(source) {
-                if (source.includes('mocked-ticket-summaries') && !this.meta.watchMode) {
+                if (source.includes('mocked-ticket-summaries') && !this.meta.watchMode && !useMocked) {
                     return '\0mock-empty';
                 }
             },
@@ -114,7 +116,7 @@ export default defineConfig({
         proxy: {
             // Dev-only proxy — set VITE_API_URL in .env to override the default backend
             '/api': {
-                target: process.env.VITE_API_URL || 'http://13.53.64.132',
+                target: import.meta.env.VITE_API_URL || 'http://13.53.64.132',
                 changeOrigin: true
             }
         }

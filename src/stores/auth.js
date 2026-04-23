@@ -8,25 +8,34 @@ const TOKEN_ENDPOINT = '/api/token/';
 const TOKEN_REFRESH_ENDPOINT = '/api/token/refresh/';
 
 export const useAuthStore = defineStore('auth', () => {
-    // JWT-mode tokens are intentionally closure-scoped to keep them out of
-    // the reactive graph and DevTools snapshots.
+    // Access + refresh tokens live in closure scope — NOT returned from the
+    // store and NOT reactive refs. Keeps them out of Vue DevTools' reactive
+    // graph and out of any accidental serialization (HMR, SSR). `username`
+    // is whatever the user typed at login — the /api/token/ response carries
+    // no user object, so it's all we have.
+    //
+    // Threat-model note: this is NOT XSS-proof. During an active session the
+    // tokens still live here and on `api.defaults.headers.common.Authorization`,
+    // and any XSS running in the tab can read both. What this buys us is
+    // reduced surface area — DevTools no longer prints tokens on every state
+    // snapshot — plus the existing refresh-clears-state behavior.
     let _access = null;
     let _refresh = null;
     let _username = null;
     const _authVersion = ref(0);
 
-    // Firebase-mode state
-    const user = ref(null);
-    const role = ref(null);
+    // Firebase mode: User and role come from Firestore
+    const user = ref(null); // { uid, email, displayName } or null
+    const role = ref(null); // 'admin' | 'viewer' | null
 
     const isLoading = ref(false);
     const error = ref(null);
 
     const isAuthenticated = computed(() => {
         if (USE_FIREBASE) {
-            return Boolean(user.value?.uid);
+            return user.value?.uid !== null && user.value?.uid !== undefined;
         }
-        _authVersion.value; // subscribe
+        _authVersion.value; // subscribe for JWT mode
         return _access !== null;
     });
 
@@ -50,6 +59,9 @@ export const useAuthStore = defineStore('auth', () => {
         _authVersion.value++;
     }
 
+    /** Boolean probe for the interceptor — lets it decide whether a refresh
+     *  attempt is worth making WITHOUT exposing the token itself. Closure
+     *  scoping would be pointless if we handed the value back out. */
     function hasRefreshToken() {
         return _refresh !== null;
     }
@@ -134,6 +146,8 @@ export const useAuthStore = defineStore('auth', () => {
         }
     }
 
+    /** Invoked by the authApi 401 interceptor. Rotates tokens per the spec
+     *  (refresh response contains BOTH a new access and a new refresh). */
     async function refresh() {
         if (USE_FIREBASE) {
             throw new Error('Refresh not supported in Firebase mode');
@@ -144,20 +158,29 @@ export const useAuthStore = defineStore('auth', () => {
         if (!data?.access) {
             throw new Error('Malformed refresh response');
         }
+        // Rotating refresh tokens — keep the old one if the backend didn't
+        // rotate (defensive; the reference backend does rotate).
         applyTokens(data.access, data.refresh ?? _refresh);
         setAuthHeader(data.access);
         return data.access;
     }
 
-    async function logout() {
+    function logout() {
         error.value = null;
         if (USE_FIREBASE) {
             try {
-                const { signOut } = await import('firebase/auth');
-                const { auth } = await import('@/firebase');
-                await signOut(auth);
+                // Firebase logout is async but we can't await here in all contexts
+                (async () => {
+                    try {
+                        const { signOut } = await import('firebase/auth');
+                        const { auth } = await import('@/firebase');
+                        await signOut(auth);
+                    } catch (err) {
+                        logger.warn('Firebase signOut failed:', err?.message || err);
+                    }
+                })();
             } catch (err) {
-                logger.warn('Firebase signOut failed:', err?.message || err);
+                logger.warn('Firebase import failed:', err?.message || err);
             }
             user.value = null;
             role.value = null;
@@ -168,9 +191,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     function initializeAuth() {
+        // Nothing to restore — tokens are in-memory only. On every fresh page
+        // load the user starts unauthenticated and will be routed to /login.
         isLoading.value = false;
     }
 
+    /** Clear the last login error — exposed so components don't have to
+     *  reach in and mutate `error` directly from the outside. */
     function clearError() {
         error.value = null;
     }
