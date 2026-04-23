@@ -6,7 +6,7 @@
         "build": "vite build",
         "clean-build": "rm -rf dist && vite build",
         "predeploy": "npm run build",
-        "deploy": "vite build && gh-pages -d dist",
+        "deploy": "vite build && node scripts/copy-404.js && gh-pages -d dist",
         "preview": "vite preview",
         "lint": "eslint --fix . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
         "refresh-mock-dates": "node scripts/refresh-mock-dates.mjs"

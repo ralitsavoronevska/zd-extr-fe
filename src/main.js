@@ -16,14 +16,14 @@ import '@/assets/styles.scss';
 // Initialize Firebase if VITE_USE_FIREBASE is set
 const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE === 'true';
 if (USE_FIREBASE) {
-    try {
-        // Dynamically import and initialize Firebase
-        await import('@/firebase');
-        logger.info('Firebase initialized in main.js');
-    } catch (err) {
-        logger.error('Failed to initialize Firebase:', err.message);
-        // Continue without Firebase if initialization fails
-    }
+    import('@/firebase')
+        .then(() => {
+            logger.info('Firebase initialized in main.js');
+        })
+        .catch((err) => {
+            logger.error('Failed to initialize Firebase:', err?.message || err);
+            // Continue without Firebase if initialization fails
+        });
 }
 
 const app = createApp(App);
