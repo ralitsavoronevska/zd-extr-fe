@@ -30,14 +30,11 @@ export function useTicketTableData(filterState, dataTableRef) {
     const ticketDataStore = useTicketDataStore();
     const { isLoading } = storeToRefs(ticketDataStore);
 
-    const shouldMaskCustomerEmails = computed(
-        () => USE_MOCKED && USE_FIREBASE && authStore.role !== 'admin'
-    );
+    const shouldMaskCustomerEmails = computed(() => USE_MOCKED && USE_FIREBASE && authStore.role !== 'admin');
 
     const maskCustomerEmail = (ticket) => ({
         ...ticket,
-        customer_email:
-            ticket.customer_email && ticket.customer_email !== 'none' ? '*****' : ticket.customer_email
+        customer_email: ticket.customer_email && ticket.customer_email !== 'none' ? '*****' : ticket.customer_email
     });
 
     // ════════════════════════════════════════════════════════════════════
@@ -64,9 +61,7 @@ export function useTicketTableData(filterState, dataTableRef) {
         availableTopics = faceted.availableTopics;
         availableBrands = faceted.availableBrands;
         availableVipLevels = faceted.availableVipLevels;
-        availableCustomerEmails = computed(() =>
-            shouldMaskCustomerEmails.value ? [] : faceted.availableCustomerEmails.value
-        );
+        availableCustomerEmails = computed(() => (shouldMaskCustomerEmails.value ? [] : faceted.availableCustomerEmails.value));
         availableAgentEmails = faceted.availableAgentEmails;
         availableChatTags = faceted.availableChatTags;
         availableSentiments = faceted.availableSentiments;
@@ -206,12 +201,14 @@ export function useTicketTableData(filterState, dataTableRef) {
     }
 
     // ── Export ──
-    // Disabled when ticketid is set — the export endpoint ignores the ticketid param,
-    // so the download would contain every row in the date range instead of the single
-    // ticket the user sees in the table.
+    // Disabled whenever any filter the export endpoint does not honor is active.
+    // The endpoint accepts timestamp range + brand/topic/vip_level/csat_score/sentiment
+    // + agent_email/customer_email/chat_tags. Any other active filter would produce
+    // a CSV that doesn't match the visible table.
     const isExportDisabled = computed(() => {
         if (USE_MOCKED) return false;
-        return !!filters.value.ticketid?.value;
+        const p = extractFilterParams();
+        return !!p.ticketid || !!p.globalFilter || !!p.sentiment_reason || !!p.chat_transcript || !!p.email_transcript || !!p.summary || !!p.startedAtStart || !!p.startedAtEnd || !!p.updatedAtStart || !!p.updatedAtEnd;
     });
 
     const exportRows = USE_MOCKED

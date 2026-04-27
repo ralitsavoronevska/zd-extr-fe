@@ -8,8 +8,8 @@
 - Analytics dashboard with charts (topic distribution, sentiment breakdown)
 - VIP customer tracking table
 - CSV export with size warnings
-- Django-backed username/password authentication — JWT access + rotating refresh (`djangorestframework-simplejwt`)
-- Role handling lives entirely on the backend — the frontend doesn't track or branch on user role. Server-side masking of `customer_email` for non-admins is transparent to the client, which renders whatever the API returns.
+- Dual authentication: **Firebase Auth + Firestore (active in dev)** for role-based access, or **Django JWT (primary)** with access/refresh tokens
+- Role handling: server-side for JWT mode, client-side from Firestore for Firebase mode
 - Dark/light mode toggle (persisted to localStorage)
 - Deployed to GitHub Pages at `/zd-extr-fe/`
 
@@ -25,7 +25,7 @@
 | UI | PrimeVue 4 (Aura theme), PrimeIcons 7 |
 | Styling | Tailwind CSS 4 + tailwindcss-primeui, SCSS |
 | Charts | Chart.js 3 (via PrimeVue `<Chart>`) |
-| Auth | Django JWT (djangorestframework-simplejwt) — access + rotating refresh, ~30 min access / 7 day refresh |
+| Auth | Dual-mode: Firebase 12 Auth + Firestore (active in dev) or Django JWT (djangorestframework-simplejwt) — access + rotating refresh, ~30 min access / 7 day refresh |
 | HTTP | Axios + 401 interceptor with single in-flight refresh (queued concurrent 401s) |
 | Build | Vite 6 (base: `/zd-extr-fe/`) |
 | Deploy | gh-pages (`npm run deploy`) |
@@ -46,11 +46,11 @@
 
 6. **Faceted filter options** — **Mock mode**: `useFacetedFilterOptions` composable with single-pass bitmask aggregation (client-side). **API mode**: `GET /api/ticket-filter-options/` returns distinct values server-side with the same faceted logic — applying all active filters except the field's own. Response shape: `{ topic: [], brand: [], vip_level: [], customer_email: [], agent_email: [], chat_tags: [], sentiment: [], csat_score: [] }`. **Case-insensitive dedup**: the backend can return mixed-case duplicates (e.g. `vip_level: ["Gold", "gold", "Normal", "normal", ...]`) when the underlying data has inconsistent casing. `tableStore.fetchFilterOptionsFromApi` / `fetchNarrowedFilterOptions` run the response through `normalizeFilterOptions` (src/utils/normalization.js) which lowercases + dedupes the `LOWERCASE_FIELDS` arrays (`vip_level`, `sentiment`, `csat_score`) so the dropdown matches what `normalizeApiRecord` did to ticket rows and what the outgoing filter param will carry. Case-sensitive fields (topic, brand, emails, chat_tags) pass through untouched.
 
-7. **JWT authentication (djangorestframework-simplejwt)** — `POST /api/token/` with `{ username, password }` returns `{ access, refresh }` (no user object). Every subsequent request sends `Authorization: Bearer <access>`. Access token lives ~30 min; refresh token ~7 days and **rotates on each use** (refresh response carries a new `refresh` too). The auth store (`src/stores/auth.js`) holds both tokens plus the user-typed `username` in **closure scope** — not as reactive refs and **not returned from the store** — plus a `_authVersion` counter that drives exposed computed refs (`isAuthenticated`, `username`, `isLoading`, `error`). The frontend does **not** track role — role enforcement is purely server-side. No localStorage / sessionStorage / cookies, so nothing persists across tab/refresh (the 7-day refresh window is **not** used — by design, consistent with the existing security posture). Closure-scoping keeps tokens out of Vue DevTools snapshots; it does **not** make the store XSS-proof (active-session XSS can still read `api.defaults.headers.common.Authorization`). There is **no logout endpoint** — JWT is stateless; `logout()` is purely client-side (tokens remain server-valid for their natural lifetime). **Logout always hard-reloads** (`window.location.href = .../login`) rather than SPA-navigating, so `ticketDataStore` / `tableStore` singletons can't leak the previous user's data to a subsequent login on the same tab. On 401 the `authApi.js` interceptor calls `/api/token/refresh/` once, replays the original request with the new Bearer token, and falls back to logout+redirect only on terminal auth failures (401/403 from the refresh endpoint). Transient errors (5xx, network) bubble up without kicking the user out. Concurrent 401s queue behind a single in-flight refresh promise so the rotating refresh token is only consumed once. Route guards await `initializeAuth()` which resolves immediately (no persisted state to restore).
+7. **Dual authentication (Firebase + JWT)** — Controlled by `VITE_USE_FIREBASE` env var. **Firebase mode**: `signInWithEmailAndPassword()` → Firestore `users/{uid}` doc fetch → role + displayName stored in reactive refs. **JWT mode**: `POST /api/token/` → tokens in closure scope. Auth store branches on `USE_FIREBASE` for login/logout logic. Route guards await `initializeAuth()` before every navigation. See `FIREBASE+FIRESTORE.md` for full setup guide.
 
 8. **Mock data fallback** — Set `VITE_USE_MOCKED_DATA=true` in `.env` (comment out the line to disable) to load `src/services/mocked-ticket-summaries.json` instead of hitting the API. **Note**: mock mode only replaces the *ticket data* endpoints — login still hits the real Django backend at `VITE_API_URL/api/token/`, so you need the backend running to sign in. The backend masks `customer_email` server-side, but mock data has raw emails baked in, so mock-mode users always see real emails regardless of their real backend role. `mockedProcessTicket` applies the same `LOWERCASE_FIELDS` pass as `normalizeApiRecord`, so the mock-mode filter dropdown never shows mixed-case duplicates even if the fixture does. Dev-only concern; production uses the API.
 
-9. **Code splitting** — Vite manual chunks: `framework` (vue/pinia/vue-router), `primevue-theme` (Aura preset), `primevue-config` (config/services), `primevue` (components), `charts`, `vendor`. Combined with lazy routes and async components this produces an optimal loading cascade.
+9. **Code splitting** — Vite manual chunks: `framework` (vue/pinia/vue-router), `primevue-theme` (Aura preset), `primevue-config` (config/services), `primevue` (components), `charts`, `vendor`. Combined with lazy routes and async components this produces an optimal loading cascade. **`exclude-mock-data` plugin**: strips mock JSON from production build when `VITE_USE_MOCKED_DATA !== 'true'` (prevents ~973 kB dead chunk).
 
 10. **PrimeIcons hosted locally** — Font files committed to `public/fonts/primeicons/`, frozen from npm updates. Vite plugin `primeicons-local-fonts` rewrites CSS `url()` references and strips font files from `dist/assets/` at build time. A `@font-face` rule in `styles.scss` sets `font-display: swap` to prevent FOIT (flash of invisible text).
 
@@ -66,11 +66,13 @@
 
 ```
 src/
+├── firebase/
+│   └── index.js                       # Firebase app config + exports
 ├── main.js                            # Entry: Pinia, Router, PrimeVue config
 ├── App.vue                            # Root: auth loading gate + router-view
 ├── router/index.js                    # 4 lazy routes (/login, /, /error, /access-denied) + auth guards
 ├── stores/
-│   ├── auth.js                        # JWT auth — access/refresh tokens in closure scope; exposes isAuthenticated / username / refresh() / hasRefreshToken()
+│   ├── auth.js                        # Dual auth: Firebase or JWT — tokens in closure scope; exposes isAuthenticated / username / refresh() / hasRefreshToken()
 │   ├── tableStore.js                  # filteredTickets + memoized chart aggregations (topicStats etc.)
 │   └── ticketData.js                  # Core: data fetch, IDB cache, batched normalization, lazy init (Pinia store)
 ├── composables/
@@ -135,20 +137,22 @@ Each endpoint accepts a different subset of filter params. All share `timestamp_
 | `/api/ticket-stats/` | GET | Aggregated stats for StatsWidget | — |
 | `/api/topic-chart-data/` | GET | Topic distribution for charts (max 100, sorted by total desc) | — |
 | `/api/vip-csat-data/` | GET | VIP segment × date CSAT grid | — |
-| `/api/ticket-summaries/export/` | GET | Streaming CSV (no pagination) | `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` only (no text-contains, no agent/customer email, no chat_tags, no started_at/updated_at) |
+| `/api/ticket-summaries/export/` | GET | Streaming CSV (no pagination) | `brand`, `topic`, `vip_level`, `csat_score`, `sentiment`, `agent_email`, `customer_email`, `chat_tags` (no text-contains, no started_at/updated_at, no ticketid, no search, no sentiment_reason) |
 
 Param builders in `src/services/ticketApi.js`: `buildTicketListParams()`, `buildFilterOptionsParams()`, `buildNarrowedFilterOptionsParams()`, `buildStatsParams()`, `buildTopicChartParams()`, `buildVipCsatParams()`, `buildExportParams()`. Each builder sends only the params its endpoint accepts:
-- `buildTicketListParams` — full set: all dates, all attributes, pagination, ordering, search, sentiment_reason, boolean text-contains. **Special case**: when `filters.ticketid` is set, pagination/ordering/search/text-contains are all skipped because the request is routed to `/api/ticket-summaries/{id}/` which ignores query params entirely.
+- `buildTicketListParams` — full set: all dates, all attributes, pagination, ordering, search, sentiment_reason, boolean text-contains. **Special case**: when `filters.ticketid` is set, pagination/ordering/search/text-contains are all skipped because the request is routed to `/api/ticket-summaries/{id}/` (detail endpoint), NOT the list endpoint (the list endpoint ignores the `ticketid` query param entirely).
 - `buildFilterOptionsParams` — `timestamp_gte/lt` only (returns unfiltered distinct values for the active filter's own dropdown)
 - `buildNarrowedFilterOptionsParams` — `timestamp_gte/lt` + all attribute filters incl. ticketid (returns narrowed distinct values for inactive filter dropdowns)
 - `buildStatsParams` — `timestamp_gte/lt` + all attribute filters incl. ticketid
 - `buildTopicChartParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (omits `agent_email`/`customer_email`/`chat_tags`/`started_at`/`updated_at`)
 - `buildVipCsatParams` — `timestamp_gte/lt` + `vip_level` + `csat_score` only
-- `buildExportParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment` (same subset as topic chart). CSV export is **disabled in the UI** when `ticketid` is set because the export endpoint ignores the ticketid param.
+- `buildExportParams` — `timestamp_gte/lt` + `brand`, `topic`, `vip_level`, `csat_score`, `sentiment`, `agent_email`, `customer_email`, `chat_tags` (a superset of topic-chart's attribute filters). CSV export is **disabled in the UI** whenever any filter the endpoint does not honor is active — `ticketid`, global search, `sentiment_reason`, `chat_transcript`, `email_transcript`, `summary`, `started_at`, or `updated_at`. Principle: the download must reflect what's in the table, so applying e.g. a text-contains filter drops export until the user clears it.
 
-### Customer email masking (server-side)
+### Customer email masking (server-side and client-side)
 
 The backend masks `customer_email` server-side based on the authenticated user's role (a server-side concern — the JWT itself carries no role claim, and the frontend does not track role). Non-admin users receive `"*****"` for the email and `customer_email: []` from `/api/ticket-filter-options/`; admins receive real addresses. The frontend renders whatever the API returns — there is **no client-side masking pass** and no role-based UI branching. This applies uniformly to the ticket list, ticket detail, filter options, and CSV export responses. The customer_email column filter is always rendered; when the backend returns an empty options list, the dropdown simply shows no selectable values.
+
+**Client-side masking in Firebase + mock mode**: When `VITE_USE_FIREBASE=true` and `VITE_USE_MOCKED_DATA=true`, emails are masked to `'*****'` for non-admin users (checked via `authStore.role !== 'admin'`). The filter dropdown also returns an empty array `[]` for options, effectively disabling email filtering for non-admins in this mode.
 
 ---
 
@@ -323,11 +327,10 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 - **Authorization header format** is `Bearer <value>`. If the backend returns 401 on valid-looking requests, check the header prefix in DevTools Network tab — if it still says `Token` somewhere, a stale axios instance or manual header override is at fault.
 - **Login failures**: error message comes from `error.response.data.detail` or `error.response.data.non_field_errors[0]` (standard DRF error shapes). Falls back to `err.message` then a generic string.
 - **Role-gated UI missing for a known admin** — the frontend does not track role; it just renders whatever the API returns. If an admin user sees masked emails (`*****`), the issue is on the backend (wrong `is_admin` on the user record, or the serializer isn't honoring it). Check the API response in the Network tab.
-- **No logout endpoint** — JWT is stateless, so `logout()` is client-only. The access and refresh tokens remain server-valid for their natural lifetime (30 min / 7 days) even after logout. If this is a problem (shared-machine concern), the backend needs to add a blacklist via `simplejwt.token_blacklist`.
+- **Logout is best-effort server-side** — `logout()` awaits `POST /api/logout/` (empty body, `Authorization: Bearer <access>`, 3s timeout) before clearing local state; failures are swallowed so local cleanup always runs. Both callers (`AppTopbar.handleLogout`, the `authApi.js` interceptor's terminal-refresh-failure branch) `await` it before the hard redirect so the browser doesn't abort the in-flight POST. `/api/logout/` is listed in `isAuthEndpoint()` alongside `/api/token/` and `/api/token/refresh/` so a 401 from it can't recursively re-enter the refresh path.
 - **Open-redirect protection** — `Login.vue` validates `?redirect=` via `safeRedirectPath`: rejects non-strings, absolute URLs, protocol-relative, backslash tricks, and `/login`/`/login/*` itself (to prevent post-login ping-pong).
 
 ### Transcripts
-- **Email transcripts containing "Conversation with" are sanitized to empty string** during normalization (`sanitizeEmailTranscript` in `ticketData.js`). These are chat-session metadata lines, not actual email transcripts. When sanitized to empty, `has_email_transcript` is also flipped to `false` so the "View" button doesn't render.
 - **Transcript dialog auto-closes on empty content** — if the fetched transcript is empty after sanitization (happens in API mode when the list endpoint flags `has_email_transcript: true` but the detail endpoint returns a "Conversation with" header), `useTranscriptDialog` closes the dialog instead of showing an empty popup. The real fix is on the backend — it should set `has_email_transcript = false` for these entries.
 
 ### Dark mode not toggling
@@ -340,8 +343,7 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 - Base URL must be `/zd-extr-fe/` in `vite.config.mjs` — do not change for GitHub Pages
 - `npm run deploy` runs `npm run build` then `gh-pages -d dist`
 - Never commit `.env`
-- PrimeIcons fonts must exist in `public/fonts/primeicons/` — copy from `node_modules/primeicons/fonts/` once after install; they are committed to git and not regenerated by Vite
-
+- PrimeIcons fonts must exist in `public/fonts/primeicons/` — copy from `node_modules/primeicons/fonts/` once after install; they are committed to git and not regenerated by Vite- **`exclude-mock-data` Vite plugin** — strips mock JSON from production build when `VITE_USE_MOCKED_DATA !== 'true'` (prevents ~973 kB dead chunk)
 ---
 
 ## Environment Variables
@@ -349,6 +351,7 @@ Header buttons (Today, Last 7 Days, Last 30 Days, Last 2 Months, Last 3 Months) 
 | Variable | Purpose |
 |---|---|
 | `VITE_USE_MOCKED_DATA` | `true` to load local mock JSON instead of API (comment out to disable) |
+| `VITE_USE_FIREBASE` | `true` to use Firebase Auth + Firestore instead of Django JWT (active in dev) |
 | `VITE_API_BASE_URL` | axios `baseURL` for `authApi.js` (default: empty — requests go to same origin and rely on the Vite proxy) |
 | `VITE_API_URL` | Dev-server proxy target for `/api/*` (fallback: `http://13.53.64.132`) |
 
@@ -396,7 +399,7 @@ Cumulative counts seen when clicking the quick-filter buttons: Today 308, Last 7
 - **Data is already normalized** by `processRecords` (mock) or `normalizeApiRecord` (API) — no need for defensive `|| 'none'` / `|| 'No Data'` checks downstream.
 - **`topic` is a multiselect filter** — its value is `string[]`, not `string|null`. Mock mode: lives in `activeMultiselects` in `useFacetedFilterOptions`. API mode: sent as array via `addAllAttributeFilters` in `ticketApi.js`.
 - **API ticket list does NOT return transcripts** — it returns `has_chat_transcript` / `has_email_transcript` booleans. Full transcripts are fetched on-demand via `GET /api/ticket-summaries/{ticketid}/`.
-- **Ticket ID filter uses the detail endpoint** — filtering by `ticketid` in API mode routes to `/api/ticket-summaries/{id}/`, NOT the list endpoint (backend doesn't honor `?ticketid=`). `stats`/`topicChartData`/`vipCsatData` are computed client-side from the single fetched ticket via `tableStore.setSingleTicketAggregations()`. The CSV export button is disabled in this state.
+- **Ticket ID filter uses the detail endpoint** — filtering by `ticketid` in API mode routes to `/api/ticket-summaries/{id}/`, NOT the list endpoint (backend doesn't honor `?ticketid=`). `stats`/`topicChartData`/`vipCsatData` are computed client-side from the single fetched ticket via `tableStore.setSingleTicketAggregations()`. The CSV export button is disabled in this state (along with any other filter the export endpoint doesn't honor — see `buildExportParams` in the API Endpoints section).
 - **Single-result widget fallback (API mode)** — when a non-ticketid filter narrows the list to exactly 1 ticket (`totalCount === 1`), [useTicketTableData.js](src/composables/useTicketTableData.js) silently overrides `stats`/`topicChartData`/`vipCsatData` via `tableStore.setSingleTicketAggregations()` after the normal `fetchAllAggregations()` call. This keeps StatsWidget / ChartDoc / VipTableDoc consistent with the table when the user applies a filter that the aggregation endpoints don't honor (e.g. `customer_email`, `agent_email`, `chat_tags` on `/api/vip-csat-data/`, which would otherwise show broader totals than the single visible row).
 - **API mount flow (`useTicketTableData.onMounted`)** — list prefetch (`ticketDataStore.lazyInit`) and aggregation fetch (`tableStore.fetchAllAggregations`) run in a single `Promise.all` off a **single** filter snapshot. Filter changes made while that promise is pending set a `pendingFilterChange` flag that's flushed via `debouncedFetchData()` as soon as `initialFetchDone` flips — without the flush, a user typing in the global search during cold load would see their input accepted into state but never trigger a fetch.
 - **Filter watcher uses `{ deep: true }` on the filters ref**, not `JSON.stringify(extractFilterParams())`. Semantically equivalent, zero stringification on every reactive tick.

@@ -6,6 +6,10 @@ import { logger } from '@/utils/logger';
 const USE_FIREBASE = import.meta.env.VITE_USE_FIREBASE === 'true';
 const TOKEN_ENDPOINT = '/api/token/';
 const TOKEN_REFRESH_ENDPOINT = '/api/token/refresh/';
+const LOGOUT_ENDPOINT = '/api/logout/';
+// Cap the logout request so a slow/dead backend can't freeze the UI between
+// click and redirect. On a healthy backend the call returns in ~200ms.
+const LOGOUT_TIMEOUT_MS = 3000;
 
 export const useAuthStore = defineStore('auth', () => {
     // Access + refresh tokens live in closure scope — NOT returned from the
@@ -102,15 +106,16 @@ export const useAuthStore = defineStore('auth', () => {
             await fetchUserDataFromFirestore(fbUser.uid, fbUser.email);
             return { success: true };
         } catch (err) {
-            const msg = err?.code === 'auth/user-not-found'
-                ? 'User not found'
-                : err?.code === 'auth/wrong-password'
-                    ? 'Incorrect password'
-                    : err?.code === 'auth/invalid-email'
+            const msg =
+                err?.code === 'auth/user-not-found'
+                    ? 'User not found'
+                    : err?.code === 'auth/wrong-password'
+                      ? 'Incorrect password'
+                      : err?.code === 'auth/invalid-email'
                         ? 'Invalid email address'
                         : err?.code === 'auth/too-many-requests'
-                            ? 'Too many attempts. Try again later.'
-                            : err?.message || 'Login failed';
+                          ? 'Too many attempts. Try again later.'
+                          : err?.message || 'Login failed';
             error.value = msg;
             throw err;
         }
@@ -166,6 +171,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     function logout() {
+        setAuthHeader(null);
+        applyTokens(null, null, null);
+        error.value = null;
+    }
+
+    /** Best-effort server-side logout (POST /api/logout/), then clear local
+     *  state. The server call is awaited so the browser doesn't abort it
+     *  mid-flight when the caller follows up with `window.location.href = ...`,
+     *  but any failure (network blip, 401 from an already-dead access token)
+     *  is swallowed — local cleanup must happen regardless. Capped at
+     *  LOGOUT_TIMEOUT_MS so a dead backend can't freeze the redirect. */
+    async function logout() {
         error.value = null;
         if (USE_FIREBASE) {
             try {
@@ -186,8 +203,17 @@ export const useAuthStore = defineStore('auth', () => {
             role.value = null;
             return;
         }
-        setAuthHeader(null);
-        applyTokens(null, null, null);
+        if (_access) {
+            try {
+                await api.post(LOGOUT_ENDPOINT, null, { timeout: LOGOUT_TIMEOUT_MS });
+            } catch {
+                // Swallow — see docstring.
+            } finally {
+                setAuthHeader(null);
+                applyTokens(null, null, null);
+                error.value = null;
+            }
+        }
     }
 
     function initializeAuth() {
